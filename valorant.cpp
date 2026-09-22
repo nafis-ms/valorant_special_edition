@@ -1,13 +1,575 @@
 #include <windows.h>
 #include <GL/glut.h>
+#include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "image/stb_image.h"
 
 // ============================================================
-// MAP ROTATION
+// TEXTURES
 // ============================================================
 
-float mapRotationX = 0.0f;
-float mapRotationY = 0.0f;
-float mapRotationZ = 0.0f;
+GLuint wallTexture;
+GLuint floorTexture;
+
+
+// ============================================================
+// MAP SCALE
+// ============================================================
+
+const float MAP_SCALE = 2.0f;
+
+
+// ============================================================
+// FPS CAMERA
+// ============================================================
+
+float cameraX = -3.0f;
+float cameraY = 0.8f;
+float cameraZ = -5.5f;
+
+float cameraYaw = 0.0f;
+float cameraPitch = 0.0f;
+
+float moveSpeed = 0.15f;
+float mouseSensitivity = 0.06f;
+
+bool firstMouse = true;
+bool ignoreMouse = false;
+
+
+// ============================================================
+// PLAYER COLLISION
+// ============================================================
+
+float playerRadius = 0.15f;
+
+struct WallCollision
+{
+    float minX;
+    float maxX;
+    float minZ;
+    float maxZ;
+};
+
+WallCollision walls[100];
+int wallCount = 0;
+
+
+// ============================================================
+// ADD COLLISION BOX
+// ============================================================
+
+void addCollisionWall(
+    float x,
+    float z,
+    float width,
+    float depth
+)
+{
+    if (wallCount >= 100)
+        return;
+
+    // Apply the same 2x scale used by the map
+    x *= MAP_SCALE;
+    z *= MAP_SCALE;
+
+    width *= MAP_SCALE;
+    depth *= MAP_SCALE;
+
+    walls[wallCount].minX =
+        x - width / 2.0f;
+
+    walls[wallCount].maxX =
+        x + width / 2.0f;
+
+    walls[wallCount].minZ =
+        z - depth / 2.0f;
+
+    walls[wallCount].maxZ =
+        z + depth / 2.0f;
+
+    wallCount++;
+}
+
+
+// ============================================================
+// CHECK COLLISION
+// ============================================================
+
+bool checkCollision(
+    float x,
+    float z
+)
+{
+    for (int i = 0; i < wallCount; i++)
+    {
+        if (x + playerRadius > walls[i].minX &&
+            x - playerRadius < walls[i].maxX &&
+            z + playerRadius > walls[i].minZ &&
+            z - playerRadius < walls[i].maxZ)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+// ============================================================
+// SETUP ALL COLLISIONS
+// ============================================================
+
+void setupCollisions()
+{
+    wallCount = 0;
+
+    float wallD = 0.35f;
+
+    // ========================================================
+    // OUTER WALLS
+    // ========================================================
+
+    // LEFT OUTER WALL
+    addCollisionWall(
+        -8.5f,
+        -2.8f,
+        wallD,
+        9.5f
+    );
+
+    // LOWER LEFT WALL
+    addCollisionWall(
+        -6.3f,
+        -7.5f,
+        4.7f,
+        wallD
+    );
+
+    // BOTTOM WALL
+    addCollisionWall(
+        0.7f,
+        -9.0f,
+        9.3f,
+        wallD
+    );
+
+    // BOTTOM RIGHT WALL
+    addCollisionWall(
+        5.2f,
+        -8.0f,
+        wallD,
+        2.0f
+    );
+
+    // SMALL BOTTOM LEFT VERTICAL WALL
+    addCollisionWall(
+        -4.1f,
+        -8.3f,
+        wallD,
+        1.8f
+    );
+
+    // RIGHT LOWER WALL
+    addCollisionWall(
+        6.5f,
+        -1.5f,
+        wallD,
+        11.0f
+    );
+
+    // RIGHT UPPER WALL
+    addCollisionWall(
+        5.9f,
+        -7.0f,
+        1.5f,
+        wallD
+    );
+
+    // RIGHT CENTER WALL
+    addCollisionWall(
+        5.5f,
+        4.0f,
+        2.0f,
+        wallD
+    );
+
+    // TOP RIGHT
+    addCollisionWall(
+        4.5f,
+        6.4f,
+        wallD,
+        5.1f
+    );
+
+    // TOP CENTER
+    addCollisionWall(
+        1.0f,
+        8.8f,
+        7.0f,
+        wallD
+    );
+
+    // TOP CENTER-LEFT
+    addCollisionWall(
+        -2.5f,
+        7.8f,
+        wallD,
+        2.5f
+    );
+
+    // TOP LEFT
+    addCollisionWall(
+        -3.8f,
+        7.0f,
+        2.8f,
+        1.0f
+    );
+
+
+    // ========================================================
+    // INTERNAL WALLS
+    // ========================================================
+
+    // LEFT UPPER ROOM - VERTICAL
+    addCollisionWall(
+        -5.0f,
+        4.5f,
+        0.35f,
+        5.4f
+    );
+
+    // LEFT UPPER ROOM - HORIZONTAL
+    addCollisionWall(
+        -6.7f,
+        1.8f,
+        3.5f,
+        0.35f
+    );
+
+
+    // ========================================================
+    // T1 TUNNEL
+    // ========================================================
+
+    // T1 LEFT WALL
+    addCollisionWall(
+        -6.3f,
+        -1.8f,
+        4.5f,
+        0.35f
+    );
+
+    // T1 RIGHT WALL
+    addCollisionWall(
+        0.2f,
+        -1.8f,
+        7.0f,
+        0.35f
+    );
+
+
+    // ========================================================
+    // CENTRAL VERTICAL WALL
+    // ========================================================
+
+    addCollisionWall(
+        0.0f,
+        -2.0f,
+        0.35f,
+        6.0f
+    );
+
+
+    // ========================================================
+    // RIGHT INTERNAL WALLS
+    // ========================================================
+
+    addCollisionWall(
+        4.2f,
+        1.5f,
+        0.35f,
+        2.9f
+    );
+
+    addCollisionWall(
+        5.0f,
+        3.0f,
+        2.0f,
+        0.35f
+    );
+
+
+    // ========================================================
+    // BUILDINGS
+    // ========================================================
+
+    // LEFT SB
+    addCollisionWall(
+        -6.2f,
+        -4.0f,
+        1.7f,
+        1.7f
+    );
+
+    // T2
+    addCollisionWall(
+        -2.4f,
+        4.0f,
+        1.8f,
+        1.8f
+    );
+
+    // TOP FB
+    addCollisionWall(
+        0.0f,
+        3.0f,
+        2.0f,
+        2.4f
+    );
+
+    // FB2
+    addCollisionWall(
+        2.8f,
+        4.3f,
+        1.1f,
+        2.1f
+    );
+
+    // MIDDLE RIGHT FB
+    addCollisionWall(
+        2.8f,
+        -1.8f,
+        1.8f,
+        2.5f
+    );
+
+    // BOTTOM FB
+    addCollisionWall(
+        1.0f,
+        -6.8f,
+        3.8f,
+        1.5f
+    );
+
+    // BOTTOM SB
+    addCollisionWall(
+        3.7f,
+        -6.8f,
+        1.4f,
+        1.5f
+    );
+
+
+    // ========================================================
+    // WINDMILL BASE
+    // ========================================================
+
+    addCollisionWall(
+        -1.8f,
+        -4.0f,
+        1.7f,
+        1.8f
+    );
+}
+
+
+// ============================================================
+// FPS CAMERA MOVEMENT
+// ============================================================
+
+void updateCamera()
+{
+    if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
+    {
+        PostQuitMessage(0);
+        return;
+    }
+
+    float yawRad =
+        cameraYaw *
+        3.14159265f /
+        180.0f;
+
+    float forwardX =
+        sinf(yawRad);
+
+    float forwardZ =
+        -cosf(yawRad);
+
+    float rightX =
+        cosf(yawRad);
+
+    float rightZ =
+        sinf(yawRad);
+
+    float newX = cameraX;
+    float newZ = cameraZ;
+
+
+    // ========================================================
+    // FORWARD
+    // ========================================================
+
+    if (GetAsyncKeyState('W') & 0x8000)
+    {
+        newX +=
+            forwardX * moveSpeed;
+
+        newZ +=
+            forwardZ * moveSpeed;
+    }
+
+
+    // ========================================================
+    // BACKWARD
+    // ========================================================
+
+    if (GetAsyncKeyState('S') & 0x8000)
+    {
+        newX -=
+            forwardX * moveSpeed;
+
+        newZ -=
+            forwardZ * moveSpeed;
+    }
+
+
+    // ========================================================
+    // LEFT
+    // ========================================================
+
+    if (GetAsyncKeyState('A') & 0x8000)
+    {
+        newX -=
+            rightX * moveSpeed;
+
+        newZ -=
+            rightZ * moveSpeed;
+    }
+
+
+    // ========================================================
+    // RIGHT
+    // ========================================================
+
+    if (GetAsyncKeyState('D') & 0x8000)
+    {
+        newX +=
+            rightX * moveSpeed;
+
+        newZ +=
+            rightZ * moveSpeed;
+    }
+
+
+    // ========================================================
+    // COLLISION + WALL SLIDING
+    // ========================================================
+
+    // Check X movement
+    if (!checkCollision(newX, cameraZ))
+    {
+        cameraX = newX;
+    }
+
+    // Check Z movement
+    if (!checkCollision(cameraX, newZ))
+    {
+        cameraZ = newZ;
+    }
+}
+
+
+// ============================================================
+// MOUSE LOOK
+// ============================================================
+
+void centerMouse()
+{
+    int windowX =
+        glutGet(GLUT_WINDOW_X);
+
+    int windowY =
+        glutGet(GLUT_WINDOW_Y);
+
+    int windowWidth =
+        glutGet(GLUT_WINDOW_WIDTH);
+
+    int windowHeight =
+        glutGet(GLUT_WINDOW_HEIGHT);
+
+    POINT center;
+
+    center.x =
+        windowX +
+        windowWidth / 2;
+
+    center.y =
+        windowY +
+        windowHeight / 2;
+
+    ignoreMouse = true;
+
+    SetCursorPos(
+        center.x,
+        center.y
+    );
+}
+
+
+void mouseMotion(
+    int x,
+    int y
+)
+{
+    if (ignoreMouse)
+    {
+        ignoreMouse = false;
+        return;
+    }
+
+    int centerX =
+        glutGet(GLUT_WINDOW_WIDTH) / 2;
+
+    int centerY =
+        glutGet(GLUT_WINDOW_HEIGHT) / 2;
+
+    if (firstMouse)
+    {
+        firstMouse = false;
+
+        centerMouse();
+
+        return;
+    }
+
+    float deltaX =
+        (float)(x - centerX);
+
+    float deltaY =
+        (float)(y - centerY);
+
+    cameraYaw +=
+        deltaX *
+        mouseSensitivity;
+
+    cameraPitch -=
+        deltaY *
+        mouseSensitivity;
+
+    if (cameraPitch > 89.0f)
+        cameraPitch = 89.0f;
+
+    if (cameraPitch < -89.0f)
+        cameraPitch = -89.0f;
+
+    centerMouse();
+}
+
 
 // ============================================================
 // WINDMILL
@@ -15,22 +577,431 @@ float mapRotationZ = 0.0f;
 
 float windmillAngle = 0.0f;
 
+
+// ============================================================
+// LOAD WALL TEXTURE
+// ============================================================
+
+void loadwallTexture()
+{
+    int width;
+    int height;
+    int channels;
+
+    unsigned char* image =
+        stbi_load(
+            "image/wall.jpg",
+            &width,
+            &height,
+            &channels,
+            0
+        );
+
+    if (!image)
+    {
+        printf(
+            "FAILED TO LOAD: image/wall.jpg\n"
+        );
+
+        printf(
+            "Reason: %s\n",
+            stbi_failure_reason()
+        );
+
+        return;
+    }
+
+    GLenum format;
+
+    if (channels == 4)
+        format = GL_RGBA;
+    else if (channels == 3)
+        format = GL_RGB;
+    else if (channels == 1)
+        format = GL_LUMINANCE;
+    else
+    {
+        printf(
+            "Unsupported image format!\n"
+        );
+
+        stbi_image_free(image);
+
+        return;
+    }
+
+    glGenTextures(
+        1,
+        &wallTexture
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        wallTexture
+    );
+
+    glPixelStorei(
+        GL_UNPACK_ALIGNMENT,
+        1
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MIN_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MAG_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_S,
+        GL_REPEAT
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_T,
+        GL_REPEAT
+    );
+
+    glTexEnvi(
+        GL_TEXTURE_ENV,
+        GL_TEXTURE_ENV_MODE,
+        GL_REPLACE
+    );
+
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        format,
+        width,
+        height,
+        0,
+        format,
+        GL_UNSIGNED_BYTE,
+        image
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0
+    );
+
+    stbi_image_free(image);
+
+    printf(
+        "wall texture loaded successfully!\n"
+    );
+
+    printf(
+        "Size: %d x %d | Channels: %d\n",
+        width,
+        height,
+        channels
+    );
+}
+
+
+// ============================================================
+// LOAD FLOOR TEXTURE
+// ============================================================
+
+void loadFloorTexture()
+{
+    int width;
+    int height;
+    int channels;
+
+    unsigned char* image =
+        stbi_load(
+            "image/floor.jpg",
+            &width,
+            &height,
+            &channels,
+            0
+        );
+
+    if (!image)
+    {
+        printf(
+            "FAILED TO LOAD: image/floor.jpg\n"
+        );
+
+        printf(
+            "Reason: %s\n",
+            stbi_failure_reason()
+        );
+
+        return;
+    }
+
+    GLenum format;
+
+    if (channels == 4)
+        format = GL_RGBA;
+    else if (channels == 3)
+        format = GL_RGB;
+    else if (channels == 1)
+        format = GL_LUMINANCE;
+    else
+    {
+        printf(
+            "Unsupported floor image format!\n"
+        );
+
+        stbi_image_free(image);
+
+        return;
+    }
+
+    glGenTextures(
+        1,
+        &floorTexture
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        floorTexture
+    );
+
+    glPixelStorei(
+        GL_UNPACK_ALIGNMENT,
+        1
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MIN_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MAG_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_S,
+        GL_REPEAT
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_T,
+        GL_REPEAT
+    );
+
+    glTexEnvi(
+        GL_TEXTURE_ENV,
+        GL_TEXTURE_ENV_MODE,
+        GL_REPLACE
+    );
+
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        format,
+        width,
+        height,
+        0,
+        format,
+        GL_UNSIGNED_BYTE,
+        image
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0
+    );
+
+    stbi_image_free(image);
+
+    printf(
+        "Floor texture loaded successfully!\n"
+    );
+
+    printf(
+        "Floor size: %d x %d | Channels: %d\n",
+        width,
+        height,
+        channels
+    );
+}
+
+
 // ============================================================
 // DRAW CUBE
 // ============================================================
 
-void drawCube(float x, float y, float z,
-              float width, float height, float depth)
+void drawCube(
+    float x,
+    float y,
+    float z,
+    float width,
+    float height,
+    float depth
+)
 {
     glPushMatrix();
 
-    glTranslatef(x, y, z);
-    glScalef(width, height, depth);
+    glTranslatef(
+        x,
+        y,
+        z
+    );
+
+    glScalef(
+        width,
+        height,
+        depth
+    );
 
     glutSolidCube(1.0f);
 
     glPopMatrix();
 }
+
+
+// ============================================================
+// DRAW TEXTURED CUBE
+// ============================================================
+
+void drawTexturedCube(
+    float x,
+    float y,
+    float z,
+    float width,
+    float height,
+    float depth
+)
+{
+    float x1 = -width / 2.0f;
+    float x2 =  width / 2.0f;
+
+    float y1 = -height / 2.0f;
+    float y2 =  height / 2.0f;
+
+    float z1 = -depth / 2.0f;
+    float z2 =  depth / 2.0f;
+
+    glPushMatrix();
+
+    glTranslatef(
+        x,
+        y,
+        z
+    );
+
+    glEnable(GL_TEXTURE_2D);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        wallTexture
+    );
+
+    glColor3f(
+        1.0f,
+        1.0f,
+        1.0f
+    );
+
+    glBegin(GL_QUADS);
+
+    // FRONT
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(x1, y1, z2);
+
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex3f(x2, y1, z2);
+
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex3f(x2, y2, z2);
+
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex3f(x1, y2, z2);
+
+    // BACK
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(x2, y1, z1);
+
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex3f(x1, y1, z1);
+
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex3f(x1, y2, z1);
+
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex3f(x2, y2, z1);
+
+    // LEFT
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(x1, y1, z1);
+
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex3f(x1, y1, z2);
+
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex3f(x1, y2, z2);
+
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex3f(x1, y2, z1);
+
+    // RIGHT
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(x2, y1, z2);
+
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex3f(x2, y1, z1);
+
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex3f(x2, y2, z1);
+
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex3f(x2, y2, z2);
+
+    // TOP
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(x1, y2, z2);
+
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex3f(x2, y2, z2);
+
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex3f(x2, y2, z1);
+
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex3f(x1, y2, z1);
+
+    // BOTTOM
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(x1, y1, z1);
+
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex3f(x2, y1, z1);
+
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex3f(x2, y1, z2);
+
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex3f(x1, y1, z2);
+
+    glEnd();
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0
+    );
+
+    glPopMatrix();
+}
+
 
 // ============================================================
 // DRAW FLOOR
@@ -38,46 +1009,123 @@ void drawCube(float x, float y, float z,
 
 void drawFloor()
 {
-    glColor3f(0.42f, 0.44f, 0.45f);
+    glEnable(GL_TEXTURE_2D);
 
-    drawCube(
+    glBindTexture(
+        GL_TEXTURE_2D,
+        floorTexture
+    );
+
+    glColor3f(
+        1.0f,
+        1.0f,
+        1.0f
+    );
+
+    glBegin(GL_QUADS);
+
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(
+        -11.0f,
         0.0f,
-        -0.20f,
+        -11.0f
+    );
+
+    glTexCoord2f(11.0f, 0.0f);
+    glVertex3f(
+        11.0f,
         0.0f,
-        22.0f,
-        0.40f,
-        22.0f
+        -11.0f
+    );
+
+    glTexCoord2f(11.0f, 11.0f);
+    glVertex3f(
+        11.0f,
+        0.0f,
+        11.0f
+    );
+
+    glTexCoord2f(0.0f, 11.0f);
+    glVertex3f(
+        -11.0f,
+        0.0f,
+        11.0f
+    );
+
+    glEnd();
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0
     );
 }
+
 
 // ============================================================
 // DRAW WALL
 // ============================================================
 
-void drawWall(float x, float y, float z,
-              float width, float height, float depth)
+void drawWall(
+    float x,
+    float y,
+    float z,
+    float width,
+    float height,
+    float depth
+)
 {
-    glColor3f(0.72f, 0.74f, 0.75f);
+    glColor3f(
+        1.0f,
+        1.0f,
+        1.0f
+    );
 
-    drawCube(x, y, z, width, height, depth);
+    drawTexturedCube(
+        x,
+        y,
+        z,
+        width,
+        height,
+        depth
+    );
 }
+
 
 // ============================================================
 // DRAW BUILDING
 // ============================================================
 
-void drawBuilding(float x, float y, float z,
-                  float width, float height, float depth)
+void drawBuilding(
+    float x,
+    float y,
+    float z,
+    float width,
+    float height,
+    float depth
+)
 {
-    glColor3f(0.58f, 0.60f, 0.61f);
+    glDisable(GL_TEXTURE_2D);
 
-    drawCube(
-        x, y, z,
-        width, height, depth
+    glColor3f(
+        0.58f,
+        0.60f,
+        0.61f
     );
 
-    // Building top
-    glColor3f(0.78f, 0.79f, 0.80f);
+    drawCube(
+        x,
+        y,
+        z,
+        width,
+        height,
+        depth
+    );
+
+    glColor3f(
+        0.78f,
+        0.79f,
+        0.80f
+    );
 
     drawCube(
         x,
@@ -87,7 +1135,10 @@ void drawBuilding(float x, float y, float z,
         0.05f,
         depth - 0.12f
     );
+
+    glEnable(GL_TEXTURE_2D);
 }
+
 
 // ============================================================
 // DRAW T1 TUNNEL
@@ -96,15 +1147,15 @@ void drawBuilding(float x, float y, float z,
 void drawT1()
 {
     float wallY = 0.9f;
-    float wallH = 1.8f;
+    float wallH = 3.8f;
     float wallD = 0.35f;
 
     // Left section
     drawWall(
-        -7.0f,
+        -6.3f,
         wallY,
         -1.8f,
-        5.0f,
+        4.5f,
         wallH,
         wallD
     );
@@ -121,15 +1172,15 @@ void drawT1()
 
     // Top of tunnel
     drawWall(
-        -3.3f,
-        1.8f,
+        -2.6f,
+        2.55f,
         -1.8f,
-        12.4f,
-        0.25f,
+        3.4f,
+        0.5f,
         0.35f
     );
-
 }
+
 
 // ============================================================
 // DRAW T2
@@ -142,11 +1193,11 @@ void drawT2()
         0.8f,
         4.0f,
         1.8f,
-        1.6f,
+        6.6f,
         1.8f
     );
-
 }
+
 
 // ============================================================
 // DRAW WINDMILL
@@ -154,20 +1205,37 @@ void drawT2()
 
 void drawWindMill()
 {
-    // Base
-    glColor3f(0.58f, 0.60f, 0.61f);
+    // ========================================================
+    // BASE
+    // ========================================================
+
+    glDisable(GL_TEXTURE_2D);
+
+    glColor3f(
+        0.58f,
+        0.60f,
+        0.61f
+    );
 
     drawCube(
         -1.8f,
         0.35f,
         -4.0f,
         1.7f,
-        0.7f,
+        2.0f,
         1.8f
     );
 
-    // Tower
-    glColor3f(0.55f, 0.57f, 0.58f);
+
+    // ========================================================
+    // TOWER
+    // ========================================================
+
+    glColor3f(
+        0.55f,
+        0.57f,
+        0.58f
+    );
 
     glPushMatrix();
 
@@ -184,7 +1252,8 @@ void drawWindMill()
         0.0f
     );
 
-    GLUquadric* quadric = gluNewQuadric();
+    GLUquadric* quadric =
+        gluNewQuadric();
 
     gluCylinder(
         quadric,
@@ -195,11 +1264,17 @@ void drawWindMill()
         10
     );
 
-    gluDeleteQuadric(quadric);
+    gluDeleteQuadric(
+        quadric
+    );
 
     glPopMatrix();
 
-    // Blades
+
+    // ========================================================
+    // BLADES
+    // ========================================================
+
     glPushMatrix();
 
     glTranslatef(
@@ -246,7 +1321,9 @@ void drawWindMill()
 
     glPopMatrix();
 
+    glEnable(GL_TEXTURE_2D);
 }
+
 
 // ============================================================
 // OUTER WALLS
@@ -255,35 +1332,35 @@ void drawWindMill()
 void drawOuterWalls()
 {
     float wallY = 0.9f;
-    float wallH = 1.8f;
+    float wallH = 3.8f;
     float wallD = 0.35f;
 
     // LEFT OUTER WALL
     drawWall(
         -8.5f,
         wallY,
-        0.0f,
+        -2.8f,
         wallD,
         wallH,
-        15.0f
+        9.5f
     );
 
     // LOWER LEFT WALL
     drawWall(
-        -6.5f,
+        -6.3f,
         wallY,
         -7.5f,
-        4.0f,
+        4.7f,
         wallH,
         wallD
     );
 
     // BOTTOM WALL
     drawWall(
-        0.0f,
+        0.7f,
         wallY,
         -9.0f,
-        10.5f,
+        9.3f,
         wallH,
         wallD
     );
@@ -292,80 +1369,73 @@ void drawOuterWalls()
     drawWall(
         5.2f,
         wallY,
-        -7.0f,
+        -8.0f,
         wallD,
         wallH,
-        4.0f
+        2.0f
+    );
+
+    // SMALL BOTTOM LEFT VERTICAL WALL
+    drawWall(
+        -4.1f,
+        wallY,
+        -8.3f,
+        wallD,
+        wallH,
+        1.8f
     );
 
     // RIGHT LOWER WALL
     drawWall(
         6.5f,
         wallY,
-        -4.5f,
+        -1.5f,
         wallD,
         wallH,
-        5.0f
-    );
-
-    // RIGHT MIDDLE WALL
-    drawWall(
-        7.0f,
-        wallY,
-        0.5f,
-        wallD,
-        wallH,
-        5.0f
+        11.0f
     );
 
     // RIGHT UPPER WALL
     drawWall(
-        6.0f,
+        5.9f,
         wallY,
-        4.0f,
-        3.0f,
+        -7.0f,
+        1.5f,
         wallH,
         wallD
     );
 
+    // RIGHT CENTER WALL
     drawWall(
-        4.6f,
+        5.5f,
         wallY,
-        5.6f,
-        wallD,
+        4.0f,
+        2.0f,
         wallH,
-        3.0f
+        wallD
     );
 
     // TOP RIGHT
     drawWall(
-        4.6f,
+        4.5f,
         wallY,
-        7.0f,
+        6.4f,
         wallD,
         wallH,
-        2.5f
-    );
-
-    drawWall(
-        2.8f,
-        wallY,
-        8.2f,
-        3.5f,
-        wallH,
-        wallD
+        5.1f
     );
 
     // TOP CENTER
     drawWall(
-        0.0f,
+        1.0f,
         wallY,
         8.8f,
-        5.0f,
+        7.0f,
         wallH,
         wallD
     );
 
+    // TOP CENTER-LEFT
     drawWall(
         -2.5f,
         wallY,
@@ -377,32 +1447,15 @@ void drawOuterWalls()
 
     // TOP LEFT
     drawWall(
-        -4.0f,
+        -3.8f,
         wallY,
         7.0f,
-        3.0f,
+        2.8f,
         wallH,
-        wallD
-    );
-
-    drawWall(
-        -5.5f,
-        wallY,
-        5.8f,
-        wallD,
-        wallH,
-        3.0f
-    );
-
-    drawWall(
-        -6.5f,
-        wallY,
-        4.5f,
-        2.0f,
-        wallH,
-        wallD
+        1.0f
     );
 }
+
 
 // ============================================================
 // INTERNAL WALLS
@@ -411,17 +1464,17 @@ void drawOuterWalls()
 void drawInternalWalls()
 {
     float wallY = 0.9f;
-    float wallH = 1.8f;
+    float wallH = 3.8f;
     float wallD = 0.35f;
 
     // LEFT UPPER ROOM
     drawWall(
         -5.0f,
         wallY,
-        3.0f,
+        4.5f,
         0.35f,
         wallH,
-        3.0f
+        5.4f
     );
 
     drawWall(
@@ -433,8 +1486,10 @@ void drawInternalWalls()
         0.35f
     );
 
+
     // T1
     drawT1();
+
 
     // CENTRAL VERTICAL WALL
     drawWall(
@@ -446,53 +1501,27 @@ void drawInternalWalls()
         6.0f
     );
 
-    // CENTRAL LOWER CONNECTION
-    drawWall(
-        0.0f,
-        wallY,
-        -6.5f,
-        0.35f,
-        wallH,
-        2.0f
-    );
 
     // RIGHT INTERNAL WALLS
     drawWall(
-        4.0f,
+        4.2f,
         wallY,
-        0.0f,
+        1.5f,
         0.35f,
         wallH,
-        1.7f
+        2.9f
     );
 
     drawWall(
         5.0f,
         wallY,
-        0.0f,
-        2.0f,
-        wallH,
-        0.35f
-    );
-
-    drawWall(
-        4.0f,
-        wallY,
-        -2.0f,
-        0.35f,
-        wallH,
-        1.5f
-    );
-
-    drawWall(
-        5.0f,
-        wallY,
-        -2.7f,
+        3.0f,
         2.0f,
         wallH,
         0.35f
     );
 }
+
 
 // ============================================================
 // BUILDINGS
@@ -506,10 +1535,9 @@ void drawBuildings()
         0.8f,
         -4.0f,
         1.7f,
-        1.6f,
+        7.6f,
         1.7f
     );
-
 
     // T2
     drawT2();
@@ -520,10 +1548,9 @@ void drawBuildings()
         1.0f,
         3.0f,
         2.0f,
-        2.0f,
+        10.0f,
         2.4f
     );
-
 
     // FB2
     drawBuilding(
@@ -531,10 +1558,9 @@ void drawBuildings()
         0.9f,
         4.3f,
         1.1f,
-        1.8f,
+        8.8f,
         2.1f
     );
-
 
     // MIDDLE RIGHT FB
     drawBuilding(
@@ -542,10 +1568,9 @@ void drawBuildings()
         0.9f,
         -1.8f,
         1.8f,
-        1.8f,
+        5.8f,
         2.5f
     );
-
 
     // BOTTOM FB
     drawBuilding(
@@ -553,10 +1578,9 @@ void drawBuildings()
         0.8f,
         -6.8f,
         3.8f,
-        1.6f,
+        5.6f,
         1.5f
     );
-
 
     // BOTTOM SB
     drawBuilding(
@@ -564,11 +1588,11 @@ void drawBuildings()
         0.8f,
         -6.8f,
         1.4f,
-        1.6f,
+        10.6f,
         1.5f
     );
-
 }
+
 
 // ============================================================
 // DRAW MAP
@@ -576,15 +1600,25 @@ void drawBuildings()
 
 void drawMap()
 {
-    // Floor first
-    drawFloor();
+    glPushMatrix();
 
-    // Map structures
+    // 2x larger in X and Z
+    // Keep Y unchanged
+    glScalef(
+        MAP_SCALE,
+        1.0f,
+        MAP_SCALE
+    );
+
+    drawFloor();
     drawOuterWalls();
     drawInternalWalls();
     drawBuildings();
     drawWindMill();
+
+    glPopMatrix();
 }
+
 
 // ============================================================
 // DISPLAY
@@ -597,111 +1631,57 @@ void display()
         GL_DEPTH_BUFFER_BIT
     );
 
-    glMatrixMode(GL_MODELVIEW);
+    glMatrixMode(
+        GL_MODELVIEW
+    );
+
     glLoadIdentity();
 
-    // Fixed camera
+
+    // ========================================================
+    // FIRST-PERSON CAMERA
+    // ========================================================
+
+    float yawRad =
+        cameraYaw *
+        3.14159265f /
+        180.0f;
+
+    float pitchRad =
+        cameraPitch *
+        3.14159265f /
+        180.0f;
+
+    float lookX =
+        sinf(yawRad) *
+        cosf(pitchRad);
+
+    float lookY =
+        sinf(pitchRad);
+
+    float lookZ =
+        -cosf(yawRad) *
+        cosf(pitchRad);
+
     gluLookAt(
-        16.0f,
-        22.0f,
-        19.0f,
+        cameraX,
+        cameraY,
+        cameraZ,
 
-        0.0f,
-        0.0f,
-        0.0f,
+        cameraX + lookX,
+        cameraY + lookY,
+        cameraZ + lookZ,
 
         0.0f,
         1.0f,
         0.0f
-    );
-
-    // Rotate complete map including floor
-    glPushMatrix();
-
-    glRotatef(
-        mapRotationX,
-        1.0f,
-        0.0f,
-        0.0f
-    );
-
-    glRotatef(
-        mapRotationY,
-        0.0f,
-        1.0f,
-        0.0f
-    );
-
-    glRotatef(
-        mapRotationZ,
-        0.0f,
-        0.0f,
-        1.0f
     );
 
     drawMap();
 
-    glPopMatrix();
-
     glutSwapBuffers();
 }
 
-// ============================================================
-// KEYBOARD
-// ============================================================
-
-void keyboard(
-    unsigned char key,
-    int x,
-    int y
-)
-{
-    switch (key)
-    {
-        // X-axis rotation
-        case 'w':
-        case 'W':
-            mapRotationX -= 5.0f;
-            break;
-
-        case 's':
-        case 'S':
-            mapRotationX += 5.0f;
-            break;
-
-        // Y-axis rotation
-        case 'a':
-        case 'A':
-            mapRotationY -= 5.0f;
-            break;
-
-        case 'd':
-        case 'D':
-            mapRotationY += 5.0f;
-            break;
-
-        // Z-axis rotation
-        case 'q':
-        case 'Q':
-            mapRotationZ -= 5.0f;
-            break;
-
-        case 'e':
-        case 'E':
-            mapRotationZ += 5.0f;
-            break;
-
-        // Reset
-        case 'r':
-        case 'R':
-            mapRotationX = 0.0f;
-            mapRotationY = 0.0f;
-            mapRotationZ = 0.0f;
-            break;
-    }
-
-    glutPostRedisplay();
-}
 
 // ============================================================
 // WINDMILL ANIMATION
@@ -709,6 +1689,8 @@ void keyboard(
 
 void update(int value)
 {
+    updateCamera();
+
     windmillAngle += 2.0f;
 
     if (windmillAngle >= 360.0f)
@@ -722,6 +1704,7 @@ void update(int value)
         0
     );
 }
+
 
 // ============================================================
 // RESIZE
@@ -742,7 +1725,10 @@ void resize(
         height
     );
 
-    glMatrixMode(GL_PROJECTION);
+    glMatrixMode(
+        GL_PROJECTION
+    );
+
     glLoadIdentity();
 
     float aspect =
@@ -756,8 +1742,11 @@ void resize(
         100.0f
     );
 
-    glMatrixMode(GL_MODELVIEW);
+    glMatrixMode(
+        GL_MODELVIEW
+    );
 }
+
 
 // ============================================================
 // INITIALIZE
@@ -772,14 +1761,35 @@ void init()
         1.0f
     );
 
-    glEnable(GL_DEPTH_TEST);
+    glEnable(
+        GL_DEPTH_TEST
+    );
 
-    glDisable(GL_LIGHTING);
+    glDisable(
+        GL_LIGHTING
+    );
 
-    glShadeModel(GL_FLAT);
+    glShadeModel(
+        GL_FLAT
+    );
 
-    glEnable(GL_COLOR_MATERIAL);
+    glEnable(
+        GL_COLOR_MATERIAL
+    );
+
+
+    // ========================================================
+    // TEXTURE
+    // ========================================================
+
+    glEnable(
+        GL_TEXTURE_2D
+    );
+
+    loadwallTexture();
+    loadFloorTexture();
 }
+
 
 // ============================================================
 // MAIN
@@ -802,8 +1812,8 @@ int main(
     );
 
     glutInitWindowSize(
-        1200,
-        800
+        1920,
+        1080
     );
 
     glutCreateWindow(
@@ -812,11 +1822,35 @@ int main(
 
     init();
 
-    glutDisplayFunc(display);
 
-    glutReshapeFunc(resize);
+    // ========================================================
+    // SETUP COLLISION FOR ALL STRUCTURES
+    // ========================================================
 
-    glutKeyboardFunc(keyboard);
+    setupCollisions();
+
+
+    // ========================================================
+    // FPS MOUSE LOOK
+    // ========================================================
+
+    glutSetCursor(
+        GLUT_CURSOR_NONE
+    );
+
+    centerMouse();
+
+    glutPassiveMotionFunc(
+        mouseMotion
+    );
+
+    glutDisplayFunc(
+        display
+    );
+
+    glutReshapeFunc(
+        resize
+    );
 
     glutTimerFunc(
         30,
