@@ -13,6 +13,8 @@
 
 GLuint wallTexture;
 GLuint floorTexture;
+GLuint buildTexture;
+GLuint build1Texture;
 
 
 // ============================================================
@@ -26,14 +28,15 @@ const float MAP_SCALE = 2.0f;
 // FPS CAMERA
 // ============================================================
 
-float cameraX = -3.0f;
+float cameraX = -2.0f;
 float cameraY = 0.8f;
-float cameraZ = -5.5f;
+float cameraZ = 15.5f;
 
 float cameraYaw = 0.0f;
 float cameraPitch = 0.0f;
 
 float moveSpeed = 0.15f;
+float strafeSpeed = 0.08f;
 float mouseSensitivity = 0.06f;
 
 bool firstMouse = true;
@@ -79,17 +82,17 @@ void addCollisionWall(
     width *= MAP_SCALE;
     depth *= MAP_SCALE;
 
-    walls[wallCount].minX =
-        x - width / 2.0f;
+walls[wallCount].minX =
+    x - width / 2.0f - 0.5f;
 
-    walls[wallCount].maxX =
-        x + width / 2.0f;
+walls[wallCount].maxX =
+    x + width / 2.0f + 0.5f;
 
-    walls[wallCount].minZ =
-        z - depth / 2.0f;
+walls[wallCount].minZ =
+    z - depth / 2.0f - 0.5f;
 
-    walls[wallCount].maxZ =
-        z + depth / 2.0f;
+walls[wallCount].maxZ =
+    z + depth / 2.0f + 0.5f;
 
     wallCount++;
 }
@@ -368,11 +371,22 @@ void setupCollisions()
     // WINDMILL BASE
     // ========================================================
 
+    // WINDMILL BASE COLLISION
     addCollisionWall(
         -1.8f,
         -4.0f,
         1.7f,
         1.8f
+    );
+
+    // WINDMILL TOWER COLLISION
+    // The collision system uses X/Z only, so this box
+    // protects the full height of the tower.
+    addCollisionWall(
+        -1.8f,
+        -4.0f,
+        0.70f,
+        0.70f
     );
 }
 
@@ -445,10 +459,10 @@ void updateCamera()
     if (GetAsyncKeyState('A') & 0x8000)
     {
         newX -=
-            rightX * moveSpeed;
+            rightX * strafeSpeed;
 
         newZ -=
-            rightZ * moveSpeed;
+            rightZ * strafeSpeed;
     }
 
 
@@ -459,10 +473,10 @@ void updateCamera()
     if (GetAsyncKeyState('D') & 0x8000)
     {
         newX +=
-            rightX * moveSpeed;
+            rightX * strafeSpeed;
 
         newZ +=
-            rightZ * moveSpeed;
+            rightZ * strafeSpeed;
     }
 
 
@@ -837,6 +851,134 @@ void loadFloorTexture()
 
 
 // ============================================================
+// LOAD BUILDING TEXTURE
+// ============================================================
+
+void loadBuildTexture()
+{
+    int width;
+    int height;
+    int channels;
+
+    unsigned char* image =
+        stbi_load(
+            "image/build.jpg",
+            &width,
+            &height,
+            &channels,
+            0
+        );
+
+    if (!image)
+    {
+        printf(
+            "FAILED TO LOAD: image/build.jpg\n"
+        );
+
+        printf(
+            "Reason: %s\n",
+            stbi_failure_reason()
+        );
+
+        return;
+    }
+
+    GLenum format;
+
+    if (channels == 4)
+        format = GL_RGBA;
+    else if (channels == 3)
+        format = GL_RGB;
+    else if (channels == 1)
+        format = GL_LUMINANCE;
+    else
+    {
+        printf(
+            "Unsupported building image format!\n"
+        );
+
+        stbi_image_free(image);
+        return;
+    }
+
+    glGenTextures(
+        1,
+        &buildTexture
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        buildTexture
+    );
+
+    glPixelStorei(
+        GL_UNPACK_ALIGNMENT,
+        1
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MIN_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MAG_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_S,
+        GL_REPEAT
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_T,
+        GL_REPEAT
+    );
+
+    glTexEnvi(
+        GL_TEXTURE_ENV,
+        GL_TEXTURE_ENV_MODE,
+        GL_REPLACE
+    );
+
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        format,
+        width,
+        height,
+        0,
+        format,
+        GL_UNSIGNED_BYTE,
+        image
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0
+    );
+
+    stbi_image_free(image);
+
+    printf(
+        "Building texture loaded successfully!\n"
+    );
+
+    printf(
+        "Building size: %d x %d | Channels: %d\n",
+        width,
+        height,
+        channels
+    );
+}
+
+
+// ============================================================
 // DRAW CUBE
 // ============================================================
 
@@ -879,7 +1021,8 @@ void drawTexturedCube(
     float z,
     float width,
     float height,
-    float depth
+    float depth,
+    GLuint texture
 )
 {
     float x1 = -width / 2.0f;
@@ -903,7 +1046,7 @@ void drawTexturedCube(
 
     glBindTexture(
         GL_TEXTURE_2D,
-        wallTexture
+        texture
     );
 
     glColor3f(
@@ -1062,6 +1205,135 @@ void drawFloor()
 
 
 // ============================================================
+// LOAD BUILDING1 TEXTURE (HEIGHT <= 7)
+// ============================================================
+
+void loadBuild1Texture()
+{
+    int width;
+    int height;
+    int channels;
+
+    unsigned char* image =
+        stbi_load(
+            "image/build1.jpg",
+            &width,
+            &height,
+            &channels,
+            0
+        );
+
+    if (!image)
+    {
+        printf(
+            "FAILED TO LOAD: image/build1.jpg\n"
+        );
+
+        printf(
+            "Reason: %s\n",
+            stbi_failure_reason()
+        );
+
+        return;
+    }
+
+    GLenum format;
+
+    if (channels == 4)
+        format = GL_RGBA;
+    else if (channels == 3)
+        format = GL_RGB;
+    else if (channels == 1)
+        format = GL_LUMINANCE;
+    else
+    {
+        printf(
+            "Unsupported building1 image format!\n"
+        );
+
+        stbi_image_free(image);
+        return;
+    }
+
+    glGenTextures(
+        1,
+        &build1Texture
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        build1Texture
+    );
+
+    glPixelStorei(
+        GL_UNPACK_ALIGNMENT,
+        1
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MIN_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MAG_FILTER,
+        GL_LINEAR
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_S,
+        GL_REPEAT
+    );
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_T,
+        GL_REPEAT
+    );
+
+    glTexEnvi(
+        GL_TEXTURE_ENV,
+        GL_TEXTURE_ENV_MODE,
+        GL_REPLACE
+    );
+
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        format,
+        width,
+        height,
+        0,
+        format,
+        GL_UNSIGNED_BYTE,
+        image
+    );
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0
+    );
+
+    stbi_image_free(image);
+
+    printf(
+        "Building1 texture loaded successfully!\n"
+    );
+
+    printf(
+        "Building size: %d x %d | Channels: %d\n",
+        width,
+        height,
+        channels
+    );
+}
+
+
+
+// ============================================================
 // DRAW WALL
 // ============================================================
 
@@ -1086,7 +1358,8 @@ void drawWall(
         z,
         width,
         height,
-        depth
+        depth,
+        wallTexture
     );
 }
 
@@ -1104,39 +1377,32 @@ void drawBuilding(
     float depth
 )
 {
-    glDisable(GL_TEXTURE_2D);
+    // Buildings with height <= 7 use build1.jpg.
+    // Taller buildings use build.jpg.
+    GLuint selectedTexture =
+        (height <= 7.0f) ? build1Texture : buildTexture;
 
-    glColor3f(
-        0.58f,
-        0.60f,
-        0.61f
-    );
-
-    drawCube(
+    // Main building body.
+    drawTexturedCube(
         x,
         y,
         z,
         width,
         height,
-        depth
+        depth,
+        selectedTexture
     );
 
-    glColor3f(
-        0.78f,
-        0.79f,
-        0.80f
-    );
-
-    drawCube(
+    // Small rooftop trim uses the same texture as the building.
+    drawTexturedCube(
         x,
         y + height / 2.0f + 0.025f,
         z,
         width - 0.12f,
         0.05f,
-        depth - 0.12f
+        depth - 0.12f,
+        selectedTexture
     );
-
-    glEnable(GL_TEXTURE_2D);
 }
 
 
@@ -1211,24 +1477,9 @@ void drawWindMill()
 
     glDisable(GL_TEXTURE_2D);
 
-    glColor3f(
-        0.58f,
-        0.60f,
-        0.61f
-    );
-
-    drawCube(
-        -1.8f,
-        0.35f,
-        -4.0f,
-        1.7f,
-        2.0f,
-        1.8f
-    );
-
 
     // ========================================================
-    // TOWER
+    // TOWER - TALLEST STRUCTURE
     // ========================================================
 
     glColor3f(
@@ -1237,11 +1488,15 @@ void drawWindMill()
         0.58f
     );
 
+    const float windmillTowerHeight = 10.5f;
+    const float windmillTowerBaseY = 0.0f;
+    const float windmillTopY = windmillTowerBaseY + windmillTowerHeight;
+
     glPushMatrix();
 
     glTranslatef(
         -1.8f,
-        1.35f,
+        windmillTowerBaseY,
         -4.0f
     );
 
@@ -1257,9 +1512,9 @@ void drawWindMill()
 
     gluCylinder(
         quadric,
-        0.30f,
+        0.45f,
         0.22f,
-        1.5f,
+        windmillTowerHeight,
         20,
         10
     );
@@ -1279,7 +1534,7 @@ void drawWindMill()
 
     glTranslatef(
         -1.8f,
-        2.85f,
+        windmillTopY,
         -3.65f
     );
 
@@ -1309,11 +1564,11 @@ void drawWindMill()
 
         drawCube(
             0.0f,
-            0.35f,
+            0.75f,
             0.0f,
-            0.12f,
-            0.7f,
-            0.08f
+            0.18f,
+            1.5f,
+            0.12f
         );
 
         glPopMatrix();
@@ -1788,6 +2043,8 @@ void init()
 
     loadwallTexture();
     loadFloorTexture();
+    loadBuildTexture();
+    loadBuild1Texture();
 }
 
 
