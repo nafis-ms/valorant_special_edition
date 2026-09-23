@@ -2567,7 +2567,7 @@ int main(
         1080);
 
     glutCreateWindow(
-        "Graphics and Animation - 3D Map");
+        "FPS Shooter");
 
     init();
 
