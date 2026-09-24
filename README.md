@@ -11,13 +11,10 @@ Instead of online multiplayer, this project uses AI-controlled bots as enemies. 
 #Features
 
 * First-person shooter (FPS) gameplay
-* AI-controlled enemy bots
 * Player movement
-* Weapon and shooting mechanics
+* Shooting mechanics
 * 3D environment
 * Camera control
-* Character animations
-* Weapon animations
 * Collision detection
 * Basic enemy AI
 * No online multiplayer
