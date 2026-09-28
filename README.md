@@ -50,18 +50,6 @@ A first-person 3D shooter built with C++, OpenGL and GLUT. You explore a walled 
 
 ## Building
 
-### Linux (Ubuntu / Debian)
-
-```bash
-sudo apt install build-essential freeglut3-dev
-g++ main_linux.cpp -o shooter -lglut -lGLU -lGL -lm
-./shooter
-```
-
-Use `main_linux.cpp`. On Wayland, the mouse may not stay centered because compositors restrict pointer warping. If that happens, log in with the "Ubuntu on Xorg" session.
-
-### Windows
-
 Install MinGW-w64 and freeglut, then:
 
 ```bash
@@ -69,16 +57,13 @@ g++ main.cpp -o shooter.exe -lfreeglut -lopengl32 -lglu32
 shooter.exe
 ```
 
-Use `main.cpp`. It relies on `windows.h` for keyboard state, timing and mouse centering.
+The source is `main.cpp`. It uses `windows.h` for keyboard state, timing and mouse centering.
 
 ## Project Structure
 
 | File | Description |
 | --- | --- |
-| `main.cpp` | Windows version |
-| `main_linux.cpp` | Linux version (same game, GLUT-based input and timing) |
-
-The two files share the same game logic, rendering and textures. They differ only in the platform-specific input, timing and mouse handling.
+| `main.cpp` | The whole game: map, collision, enemies, shooting, menu and procedural textures |
 
 ## How It Works
 
