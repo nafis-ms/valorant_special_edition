@@ -3,9 +3,12 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "image/stb_image.h"
+#ifndef GL_GENERATE_MIPMAP
+#define GL_GENERATE_MIPMAP 0x8191
+#endif
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
 
 // TEXTURES
 
@@ -13,8 +16,36 @@ GLuint wallTexture;
 GLuint floorTexture;
 GLuint buildTexture;
 GLuint build1Texture;
+GLuint windmillTowerTexture;
+GLuint windmillBladeTexture;
+GLuint skyDayTexture;
+GLuint skyNightTexture;
+GLuint sunTexture;
+GLuint moonTexture;
 
-// MAP SCALE
+const int TEX_SIZE = 512;
+
+// MENU
+
+enum GameState
+{
+    STATE_MENU,
+    STATE_PLAYING,
+    STATE_ADMIN
+};
+
+GameState gameState = STATE_MENU;
+
+int menuSelection = 0; 
+
+
+float menuStartX1, menuStartX2, menuStartY1, menuStartY2;
+float menuAdminX1, menuAdminX2, menuAdminY1, menuAdminY2;
+float menuExitX1, menuExitX2, menuExitY1, menuExitY2;
+
+const float ADMIN_FLY_SPEED = 0.12f;
+
+void resetGameToMenu();
 
 const float MAP_SCALE = 2.0f;
 
@@ -33,6 +64,18 @@ float mouseSensitivity = 0.06f;
 
 bool firstMouse = true;
 bool ignoreMouse = false;
+
+// JUMP
+
+bool isJumping = false;
+
+float verticalVelocity = 0.0f;
+
+const float GROUND_Y = 0.8f;
+
+const float GRAVITY = -0.02f;
+
+const float JUMP_STRENGTH = 0.22f;
 
 // ENEMY SYSTEM
 
@@ -58,6 +101,62 @@ int enemiesAlive = ENEMY_COUNT;
 
 bool victory = false;
 
+DWORD victoryStartTime = 0;
+
+const DWORD VICTORY_DISPLAY_MS = 5000;
+
+// DAY / NIGHT MODE
+
+bool isNightMode = false;
+
+GLfloat dayAmbient[] = {0.25f, 0.25f, 0.25f, 1.0f};
+GLfloat dayDiffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
+GLfloat daySky[] = {0.25f, 0.25f, 0.25f, 1.0f};
+
+GLfloat nightAmbient[] = {0.05f, 0.05f, 0.09f, 1.0f};
+GLfloat nightDiffuse[] = {0.22f, 0.25f, 0.42f, 1.0f};
+GLfloat nightSky[] = {0.015f, 0.015f, 0.05f, 1.0f};
+
+void applyLightingMode()
+{
+    if (isNightMode)
+    {
+        glClearColor(
+            nightSky[0],
+            nightSky[1],
+            nightSky[2],
+            nightSky[3]);
+
+        glLightfv(
+            GL_LIGHT0,
+            GL_DIFFUSE,
+            nightDiffuse);
+
+        glLightfv(
+            GL_LIGHT0,
+            GL_AMBIENT,
+            nightAmbient);
+    }
+    else
+    {
+        glClearColor(
+            daySky[0],
+            daySky[1],
+            daySky[2],
+            daySky[3]);
+
+        glLightfv(
+            GL_LIGHT0,
+            GL_DIFFUSE,
+            dayDiffuse);
+
+        glLightfv(
+            GL_LIGHT0,
+            GL_AMBIENT,
+            dayAmbient);
+    }
+}
+
 // SHOOTING
 
 DWORD lastShotTime = 0;
@@ -74,19 +173,21 @@ struct WallCollision
     float maxX;
     float minZ;
     float maxZ;
+    float topY;
 };
 
 WallCollision walls[100];
 
 int wallCount = 0;
 
-// COLLISION 
+// COLLISION
 
 void addCollisionWall(
     float x,
     float z,
     float width,
-    float depth)
+    float depth,
+    float topY = 2.8f) 
 {
     if (wallCount >= 100)
         return;
@@ -108,20 +209,29 @@ void addCollisionWall(
 
     walls[wallCount].maxZ =
         z + depth / 2.0f;
+   
+    walls[wallCount].topY = topY;
 
     wallCount++;
 }
 
 bool checkCollision(
     float x,
-    float z)
+    float z,
+    float y)
 {
+    const float xMin = x - playerRadius;
+    const float xMax = x + playerRadius;
+    const float zMin = z - playerRadius;
+    const float zMax = z + playerRadius;
+
     for (int i = 0; i < wallCount; i++)
     {
-        if (x + playerRadius > walls[i].minX &&
-            x - playerRadius < walls[i].maxX &&
-            z + playerRadius > walls[i].minZ &&
-            z - playerRadius < walls[i].maxZ)
+        const WallCollision &w = walls[i];
+
+        if (xMax > w.minX && xMin < w.maxX &&
+            zMax > w.minZ && zMin < w.maxZ &&
+            y < w.topY)
         {
             return true;
         }
@@ -275,56 +385,64 @@ void setupCollisions()
         -6.2f,
         -4.0f,
         1.7f,
-        1.7f);
+        1.7f,
+        4.6f);
 
     // T2
     addCollisionWall(
         -2.4f,
         4.0f,
         1.8f,
-        1.8f);
+        1.8f,
+        4.1f);
 
     // TOP FB
     addCollisionWall(
         0.0f,
         3.0f,
         2.0f,
-        2.4f);
+        2.4f,
+        6.0f);
 
     // FB2
     addCollisionWall(
         2.8f,
         4.3f,
         1.1f,
-        2.1f);
+        2.1f,
+        5.3f);
 
     // MIDDLE RIGHT FB
     addCollisionWall(
         2.8f,
         -1.8f,
         1.8f,
-        2.5f);
+        2.5f,
+        3.8f);
 
     // BOTTOM FB
     addCollisionWall(
         1.0f,
         -6.8f,
         3.8f,
-        1.5f);
+        1.5f,
+        3.6f);
 
-    // BOTTOM SB
+    // BOTTOM SB 
     addCollisionWall(
         3.7f,
         -6.8f,
         1.4f,
-        1.5f);
+        1.5f,
+        6.1f);
 
-    // WINDMILL TOWER
+    // WINDMILL TOWER 
     addCollisionWall(
         -1.8f,
         -4.0f,
         0.70f,
-        0.70f);
+        0.70f,
+        10.5f);
 }
 
 // PLAYER MOVEMENT
@@ -337,7 +455,23 @@ void updateCamera()
         return;
     }
 
-    if (victory)
+    if (gameState != STATE_PLAYING &&
+        gameState != STATE_ADMIN)
+    {
+        return;
+    }
+
+    if (gameState == STATE_ADMIN)
+    {
+        
+        if (GetAsyncKeyState('Q') & 0x8000)
+        {
+            resetGameToMenu();
+            return;
+        }
+    }
+
+    if (gameState == STATE_PLAYING && victory)
         return;
 
     float yawRad =
@@ -401,15 +535,67 @@ void updateCamera()
     }
 
     // Check X movement
-    if (!checkCollision(newX, cameraZ))
+    if (!checkCollision(newX, cameraZ, cameraY))
     {
         cameraX = newX;
     }
 
     // Check Z movement
-    if (!checkCollision(cameraX, newZ))
+    if (!checkCollision(cameraX, newZ, cameraY))
     {
         cameraZ = newZ;
+    }
+    
+    // ADMIN
+
+    if (gameState == STATE_ADMIN)
+    {
+
+        if (GetAsyncKeyState('H') & 0x8000)
+        {
+            cameraY += ADMIN_FLY_SPEED;
+        }
+
+        if (GetAsyncKeyState('L') & 0x8000)
+        {
+            cameraY -= ADMIN_FLY_SPEED;
+        }
+
+        if (cameraY < 0.3f)
+            cameraY = 0.3f;
+
+        if (cameraY > 25.0f)
+            cameraY = 25.0f;
+
+        return;
+    }
+
+    // JUMP
+
+    if (GetAsyncKeyState(VK_SPACE) & 0x8000)
+    {
+        if (!isJumping)
+        {
+            isJumping = true;
+
+            verticalVelocity = JUMP_STRENGTH;
+        }
+    }
+
+    if (isJumping)
+    {
+        verticalVelocity += GRAVITY;
+
+        cameraY += verticalVelocity;
+
+        if (cameraY <= GROUND_Y)
+        {
+            cameraY = GROUND_Y;
+
+            verticalVelocity = 0.0f;
+
+            isJumping = false;
+        }
     }
 }
 
@@ -454,6 +640,12 @@ void mouseMotion(
     int x,
     int y)
 {
+    if (gameState != STATE_PLAYING &&
+        gameState != STATE_ADMIN)
+    {
+        return;
+    }
+
     if (ignoreMouse)
     {
         ignoreMouse = false;
@@ -504,6 +696,8 @@ void mouseMotion(
 
 
 float windmillAngle = 0.0f;
+
+bool windmillPaused = false;
 
 void drawEnemy(
     float x,
@@ -565,6 +759,9 @@ void drawEnemy(
 // PLACING ALL ENEMIES
 void drawEnemies()
 {
+    if (gameState == STATE_ADMIN)
+        return;
+
     if (victory)
         return;
 
@@ -654,6 +851,9 @@ bool rayHitsEnemy(
 // SHOOT
 void shoot()
 {
+    if (gameState != STATE_PLAYING)
+        return;
+
     if (victory)
         return;
 
@@ -760,13 +960,16 @@ void shoot()
             "Enemies remaining: %d / %d\n",
             enemiesAlive,
             ENEMY_COUNT);
-            
+
         // VICTORY
         if (enemiesAlive <= 0)
         {
             enemiesAlive = 0;
 
             victory = true;
+
+            victoryStartTime =
+                GetTickCount();
 
             printf(
                 "\n"
@@ -781,6 +984,76 @@ void shoot()
     }
 }
 
+// START GAME
+
+void startGame()
+{
+    gameState = STATE_PLAYING;
+
+    firstMouse = true;
+
+    glutSetCursor(
+        GLUT_CURSOR_NONE);
+
+    centerMouse();
+}
+
+
+void startAdminMode()
+{
+    gameState = STATE_ADMIN;
+
+    cameraX = -2.0f;
+    cameraY = 0.8f;
+    cameraZ = 15.5f;
+
+    cameraYaw = 0.0f;
+    cameraPitch = 0.0f;
+
+    verticalVelocity = 0.0f;
+
+    isJumping = false;
+
+    firstMouse = true;
+
+    glutSetCursor(
+        GLUT_CURSOR_NONE);
+
+    centerMouse();
+}
+
+void resetGameToMenu()
+{
+    for (int i = 0; i < ENEMY_COUNT; i++)
+    {
+        enemies[i].alive = true;
+    }
+
+    enemiesAlive = ENEMY_COUNT;
+
+    victory = false;
+
+    cameraX = -2.0f;
+    cameraY = 0.8f;
+    cameraZ = 15.5f;
+
+    cameraYaw = 0.0f;
+    cameraPitch = 0.0f;
+
+    verticalVelocity = 0.0f;
+
+    isJumping = false;
+
+    gameState = STATE_MENU;
+
+    menuSelection = 0;
+
+    firstMouse = true;
+
+    glutSetCursor(
+        GLUT_CURSOR_LEFT_ARROW);
+}
+
 // MOUSE CLICK
 
 void mouseClick(
@@ -789,12 +1062,123 @@ void mouseClick(
     int x,
     int y)
 {
-    if (button ==
-            GLUT_LEFT_BUTTON &&
-        state ==
-            GLUT_DOWN)
+    if (button != GLUT_LEFT_BUTTON ||
+        state != GLUT_DOWN)
     {
-        shoot();
+        return;
+    }
+
+    if (gameState == STATE_MENU)
+    {
+        float clickX = (float)x;
+
+        float clickY =
+            (float)(glutGet(
+                        GLUT_WINDOW_HEIGHT) -
+                    y);
+
+        if (clickX >= menuStartX1 &&
+            clickX <= menuStartX2 &&
+            clickY >= menuStartY1 &&
+            clickY <= menuStartY2)
+        {
+            startGame();
+        }
+        else if (
+            clickX >= menuAdminX1 &&
+            clickX <= menuAdminX2 &&
+            clickY >= menuAdminY1 &&
+            clickY <= menuAdminY2)
+        {
+            startAdminMode();
+        }
+        else if (
+            clickX >= menuExitX1 &&
+            clickX <= menuExitX2 &&
+            clickY >= menuExitY1 &&
+            clickY <= menuExitY2)
+        {
+            exit(0);
+        }
+
+        return;
+    }
+
+    shoot();
+}
+
+// KEYBOARD
+
+void keyboard(
+    unsigned char key,
+    int ,
+    int )
+{
+    if (gameState == STATE_MENU)
+    {
+        if (key == 13 || key == ' ')
+        {
+            if (menuSelection == 0)
+            {
+                startGame();
+            }
+            else if (menuSelection == 1)
+            {
+                startAdminMode();
+            }
+            else
+            {
+                exit(0);
+            }
+        }
+
+        return;
+    }
+
+    if (key == 'n' || key == 'N')
+    {
+        isNightMode = !isNightMode;
+
+        applyLightingMode();
+
+        printf(
+            "Switched to %s mode\n",
+            isNightMode ? "NIGHT" : "DAY");
+    }
+
+    if (key == 'z' || key == 'Z')
+    {
+        windmillPaused = !windmillPaused;
+
+        printf(
+            "Windmill blades %s\n",
+            windmillPaused ? "PAUSED" : "RESUMED");
+    }
+}
+
+// SPECIAL KEYS 
+
+void specialKeys(
+    int key,
+    int ,
+    int )
+{
+    if (gameState != STATE_MENU)
+        return;
+
+    if (key == GLUT_KEY_UP)
+    {
+        menuSelection--;
+
+        if (menuSelection < 0)
+            menuSelection = 2;
+    }
+    else if (key == GLUT_KEY_DOWN)
+    {
+        menuSelection++;
+
+        if (menuSelection > 2)
+            menuSelection = 0;
     }
 }
 
@@ -817,6 +1201,309 @@ void drawScreenText(
             GLUT_BITMAP_HELVETICA_18,
             *c);
     }
+}
+
+// MAIN MENU
+
+void drawMenuScreen()
+{
+    float screenWidth =
+        (float)glutGet(
+            GLUT_WINDOW_WIDTH);
+
+    float screenHeight =
+        (float)glutGet(
+            GLUT_WINDOW_HEIGHT);
+
+    glMatrixMode(
+        GL_PROJECTION);
+
+    glPushMatrix();
+
+    glLoadIdentity();
+
+    glOrtho(
+        0.0,
+        screenWidth,
+
+        0.0,
+        screenHeight,
+
+        -1.0,
+        1.0);
+
+    glMatrixMode(
+        GL_MODELVIEW);
+
+    glPushMatrix();
+
+    glLoadIdentity();
+
+    glDisable(
+        GL_DEPTH_TEST);
+
+    glDisable(
+        GL_TEXTURE_2D);
+
+    glDisable(
+        GL_LIGHTING);
+
+    // BACKGROUND MENU
+
+    glBegin(
+        GL_QUADS);
+
+    glColor3f(
+        0.0f,
+        0.0f,
+        0.0f);
+
+    glVertex2f(
+        0.0f,
+        0.0f);
+
+    glVertex2f(
+        screenWidth,
+        0.0f);
+
+    glVertex2f(
+        screenWidth,
+        screenHeight);
+
+    glVertex2f(
+        0.0f,
+        screenHeight);
+
+    glEnd();
+
+    // TITLE
+
+    const char *titleText =
+        "3D MAP SHOOTER";
+
+    int titleWidth =
+        glutBitmapLength(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            (const unsigned char *)titleText);
+
+    glColor3f(
+        1.0f,
+        1.0f,
+        1.0f);
+
+    glRasterPos2f(
+        screenWidth / 2.0f -
+            titleWidth / 2.0f,
+
+        screenHeight * 0.68f);
+
+    for (const char *c = titleText;
+         *c != '\0';
+         c++)
+    {
+        glutBitmapCharacter(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            *c);
+    }
+
+    // START
+
+    const char *startText =
+        "START";
+
+    int startWidth =
+        glutBitmapLength(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            (const unsigned char *)startText);
+
+    float startRasterX =
+        screenWidth / 2.0f -
+        startWidth / 2.0f;
+
+    float startRasterY =
+        screenHeight * 0.56f;
+
+    menuStartX1 = startRasterX - 25.0f;
+    menuStartX2 = startRasterX + startWidth + 25.0f;
+    menuStartY1 = startRasterY - 10.0f;
+    menuStartY2 = startRasterY + 28.0f;
+
+    if (menuSelection == 0)
+    {
+        glColor3f(
+            1.0f,
+            1.0f,
+            1.0f);
+    }
+    else
+    {
+        glColor3f(
+            0.45f,
+            0.45f,
+            0.45f);
+    }
+
+    glRasterPos2f(
+        startRasterX,
+        startRasterY);
+
+    for (const char *c = startText;
+         *c != '\0';
+         c++)
+    {
+        glutBitmapCharacter(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            *c);
+    }
+
+    // ADMIN MODE
+
+    const char *adminText =
+        "ADMIN MODE";
+
+    int adminWidth =
+        glutBitmapLength(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            (const unsigned char *)adminText);
+
+    float adminRasterX =
+        screenWidth / 2.0f -
+        adminWidth / 2.0f;
+
+    float adminRasterY =
+        screenHeight * 0.56f -
+        60.0f;
+
+    menuAdminX1 = adminRasterX - 25.0f;
+    menuAdminX2 = adminRasterX + adminWidth + 25.0f;
+    menuAdminY1 = adminRasterY - 10.0f;
+    menuAdminY2 = adminRasterY + 28.0f;
+
+    if (menuSelection == 1)
+    {
+        glColor3f(
+            1.0f,
+            1.0f,
+            1.0f);
+    }
+    else
+    {
+        glColor3f(
+            0.45f,
+            0.45f,
+            0.45f);
+    }
+
+    glRasterPos2f(
+        adminRasterX,
+        adminRasterY);
+
+    for (const char *c = adminText;
+         *c != '\0';
+         c++)
+    {
+        glutBitmapCharacter(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            *c);
+    }
+
+    // EXIT
+
+    const char *exitText =
+        "EXIT";
+
+    int exitWidth =
+        glutBitmapLength(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            (const unsigned char *)exitText);
+
+    float exitRasterX =
+        screenWidth / 2.0f -
+        exitWidth / 2.0f;
+
+    float exitRasterY =
+        screenHeight * 0.56f -
+        120.0f;
+
+    menuExitX1 = exitRasterX - 25.0f;
+    menuExitX2 = exitRasterX + exitWidth + 25.0f;
+    menuExitY1 = exitRasterY - 10.0f;
+    menuExitY2 = exitRasterY + 28.0f;
+
+    if (menuSelection == 2)
+    {
+        glColor3f(
+            1.0f,
+            1.0f,
+            1.0f);
+    }
+    else
+    {
+        glColor3f(
+            0.45f,
+            0.45f,
+            0.45f);
+    }
+
+    glRasterPos2f(
+        exitRasterX,
+        exitRasterY);
+
+    for (const char *c = exitText;
+         *c != '\0';
+         c++)
+    {
+        glutBitmapCharacter(
+            GLUT_BITMAP_TIMES_ROMAN_24,
+            *c);
+    }
+
+    const char *hintText =
+        " ";
+
+    int hintWidth =
+        glutBitmapLength(
+            GLUT_BITMAP_HELVETICA_18,
+            (const unsigned char *)hintText);
+
+    glColor3f(
+        0.75f,
+        0.75f,
+        0.75f);
+
+    glRasterPos2f(
+        screenWidth / 2.0f -
+            hintWidth / 2.0f,
+
+        screenHeight * 0.22f);
+
+    for (const char *c = hintText;
+         *c != '\0';
+         c++)
+    {
+        glutBitmapCharacter(
+            GLUT_BITMAP_HELVETICA_18,
+            *c);
+    }
+
+    glEnable(
+        GL_LIGHTING);
+
+    glEnable(
+        GL_TEXTURE_2D);
+
+    glEnable(
+        GL_DEPTH_TEST);
+
+    glPopMatrix();
+
+    glMatrixMode(
+        GL_PROJECTION);
+
+    glPopMatrix();
+
+    glMatrixMode(
+        GL_MODELVIEW);
 }
 
 // GAME UI
@@ -855,6 +1542,9 @@ void drawGameUI()
     glDisable(
         GL_TEXTURE_2D);
 
+    glDisable(
+        GL_LIGHTING);
+
     // ENEMY COUNTER
 
     glColor3f(
@@ -862,61 +1552,101 @@ void drawGameUI()
         1.0f,
         1.0f);
 
-    char enemyText[100];
+    if (gameState == STATE_ADMIN)
+    {
+        glColor3f(
+            1.0f,
+            0.9f,
+            0.3f);
 
-    sprintf(
-        enemyText,
-        "Enemies Remaining: %d / %d",
-        enemiesAlive,
-        ENEMY_COUNT);
+        drawScreenText(
+            30.0f,
+            glutGet(
+                GLUT_WINDOW_HEIGHT) -
+                40.0f,
 
-    drawScreenText(
-        30.0f,
-        glutGet(
-            GLUT_WINDOW_HEIGHT) -
-            40.0f,
+            "ADMIN MODE");
 
-        enemyText);
+        glColor3f(
+            0.9f,
+            0.9f,
+            0.9f);
+
+        drawScreenText(
+            30.0f,
+            glutGet(
+                GLUT_WINDOW_HEIGHT) -
+                95.0f,
+
+            "H: Fly Up   L: Fly Down   Q: Return to Menu");
+    }
+    else
+    {
+        char enemyText[100];
+
+        sprintf(
+            enemyText,
+            "Enemy : %d / %d",
+            enemiesAlive,
+            ENEMY_COUNT);
+
+        drawScreenText(
+            30.0f,
+            glutGet(
+                GLUT_WINDOW_HEIGHT) -
+                40.0f,
+
+            enemyText);
+    }
 
     // CROSSHAIR
 
-    float centerX =
-        glutGet(
-            GLUT_WINDOW_WIDTH) /
-        2.0f;
+    if (gameState != STATE_ADMIN)
+    {
+        float centerX =
+            glutGet(
+                GLUT_WINDOW_WIDTH) /
+            2.0f;
 
-    float centerY =
-        glutGet(
-            GLUT_WINDOW_HEIGHT) /
-        2.0f;
+        float centerY =
+            glutGet(
+                GLUT_WINDOW_HEIGHT) /
+            2.0f;
 
-    glColor3f(
-        1.0f,
-        1.0f,
-        1.0f);
+        glColor3f(
+            1.0f,
+            1.0f,
+            1.0f);
 
-    glBegin(
-        GL_LINES);
+        glLineWidth(
+            2.0f);
 
-    // Horizontal
-    glVertex2f(
-        centerX - 10.0f,
-        centerY);
+        glBegin(
+            GL_LINES);
 
-    glVertex2f(
-        centerX + 10.0f,
-        centerY);
+        // Horizontal
+        glVertex2f(
+            centerX - 10.0f,
+            centerY);
 
-    // Vertical
-    glVertex2f(
-        centerX,
-        centerY - 10.0f);
+        glVertex2f(
+            centerX + 10.0f,
+            centerY);
 
-    glVertex2f(
-        centerX,
-        centerY + 10.0f);
+        // Vertical
+        glVertex2f(
+            centerX,
+            centerY - 10.0f);
 
-    glEnd();
+        glVertex2f(
+            centerX,
+            centerY + 10.0f);
+
+        glEnd();
+
+        glLineWidth(
+            1.0f);
+    }
 
     // VICTORY SCREEN
 
@@ -979,7 +1709,56 @@ void drawGameUI()
                 GLUT_BITMAP_HELVETICA_18,
                 *c);
         }
+
+        // COUNTDOWN TO MENU
+
+        DWORD elapsed =
+            GetTickCount() -
+            victoryStartTime;
+
+        DWORD remainingMs =
+            (elapsed < VICTORY_DISPLAY_MS)
+                ? (VICTORY_DISPLAY_MS - elapsed)
+                : 0;
+
+        int remainingSeconds =
+            (int)(remainingMs / 1000) + 1;
+
+        if (remainingSeconds > 5)
+            remainingSeconds = 5;
+
+        char countdownText[64];
+
+        sprintf(
+            countdownText,
+            "Returning to menu in %d...",
+            remainingSeconds);
+
+        glColor3f(
+            0.7f,
+            0.7f,
+            0.7f);
+
+        glRasterPos2f(
+            screenWidth / 2.0f -
+                110.0f,
+
+            screenHeight / 2.0f -
+                45.0f);
+
+        for (const char *c =
+                 countdownText;
+             *c != '\0';
+             c++)
+        {
+            glutBitmapCharacter(
+                GLUT_BITMAP_HELVETICA_18,
+                *c);
+        }
     }
+
+    glEnable(
+        GL_LIGHTING);
 
     glEnable(
         GL_TEXTURE_2D);
@@ -998,63 +1777,53 @@ void drawGameUI()
         GL_MODELVIEW);
 }
 
-// LOAD WALL TEXTURE
-
-void loadwallTexture()
+float pseudoRandom(int seed)
 {
-    int width;
-    int height;
-    int channels;
+    unsigned int n = (unsigned int)seed;
 
-    unsigned char *image =
-        stbi_load(
-            "image/wall.jpg",
-            &width,
-            &height,
-            &channels,
-            0);
+    n = (n << 13) ^ n;
 
-    if (!image)
-    {
-        printf(
-            "FAILED TO LOAD: image/wall.jpg\n");
+    unsigned int nn = (n * (n * n * 15731u + 789221u) +
+                        1376312589u) &
+                       0x7fffffffu;
 
-        printf(
-            "Reason: %s\n",
-            stbi_failure_reason());
+    return 1.0f -
+           ((float)nn / 1073741824.0f);
+}
 
-        return;
-    }
+float smoothstepf(float edge0, float edge1, float x)
+{
+    float t = (x - edge0) / (edge1 - edge0);
 
-    GLenum format;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
 
-    if (channels == 4)
-        format = GL_RGBA;
+    return t * t * (3.0f - 2.0f * t);
+}
 
-    else if (channels == 3)
-        format = GL_RGB;
+float pixelGrain(int x, int y, int seedOffset)
+{
+    return pseudoRandom(
+        x * 131 +
+        y * 977 +
+        seedOffset);
+}
 
-    else if (channels == 1)
-        format = GL_LUMINANCE;
 
-    else
-    {
-        printf(
-            "Unsupported image format!\n");
-
-        stbi_image_free(
-            image);
-
-        return;
-    }
+GLuint uploadProceduralTexture(
+    unsigned char *pixels,
+    int size,
+    bool useLighting)
+{
+    GLuint texID;
 
     glGenTextures(
         1,
-        &wallTexture);
+        &texID);
 
     glBindTexture(
         GL_TEXTURE_2D,
-        wallTexture);
+        texID);
 
     glPixelStorei(
         GL_UNPACK_ALIGNMENT,
@@ -1063,7 +1832,7 @@ void loadwallTexture()
     glTexParameteri(
         GL_TEXTURE_2D,
         GL_TEXTURE_MIN_FILTER,
-        GL_LINEAR);
+        GL_LINEAR_MIPMAP_LINEAR);
 
     glTexParameteri(
         GL_TEXTURE_2D,
@@ -1079,268 +1848,950 @@ void loadwallTexture()
         GL_TEXTURE_2D,
         GL_TEXTURE_WRAP_T,
         GL_REPEAT);
+
+    glTexEnvi(
+        GL_TEXTURE_ENV,
+        GL_TEXTURE_ENV_MODE,
+        useLighting ? GL_MODULATE : GL_REPLACE);
+
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_GENERATE_MIPMAP,
+        GL_TRUE);
+
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGB,
+        size,
+        size,
+        0,
+        GL_RGB,
+        GL_UNSIGNED_BYTE,
+        pixels);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0);
+
+    return texID;
+}
+
+
+GLuint uploadProceduralTextureRGBA(
+    unsigned char *pixels,
+    int size)
+{
+    GLuint texID;
+
+    glGenTextures(
+        1,
+        &texID);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        texID);
+
+    glPixelStorei(
+        GL_UNPACK_ALIGNMENT,
+        1);
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MIN_FILTER,
+        GL_LINEAR_MIPMAP_LINEAR);
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MAG_FILTER,
+        GL_LINEAR);
+
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_S,
+        GL_CLAMP_TO_EDGE);
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_WRAP_T,
+        GL_CLAMP_TO_EDGE);
 
     glTexEnvi(
         GL_TEXTURE_ENV,
         GL_TEXTURE_ENV_MODE,
         GL_MODULATE);
 
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_GENERATE_MIPMAP,
+        GL_TRUE);
+
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
-        format,
-        width,
-        height,
+        GL_RGBA,
+        size,
+        size,
         0,
-        format,
+        GL_RGBA,
         GL_UNSIGNED_BYTE,
-        image);
+        pixels);
 
     glBindTexture(
         GL_TEXTURE_2D,
         0);
 
-    stbi_image_free(
-        image);
-
-    printf(
-        "wall texture loaded successfully!\n");
-
-    printf(
-        "Size: %d x %d | Channels: %d\n",
-        width,
-        height,
-        channels);
+    return texID;
 }
 
-// LOAD FLOOR TEXTURE
+
+unsigned char *generateBrickTexture(int size)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 3];
+
+    int brickRows = 8;
+    int brickCols = 4;
+
+    int brickH = size / brickRows;
+    int brickW = size / brickCols;
+
+    int mortar = size / 85;
+    if (mortar < 2) mortar = 2;
+
+
+    const int JITTER_COLS = brickCols + 2;
+    float brickJitter[8][JITTER_COLS];
+
+    for (int row = 0; row < brickRows; row++)
+    {
+        for (int col = 0; col < JITTER_COLS; col++)
+        {
+            int brickID = col + row * 13;
+            brickJitter[row][col] = pseudoRandom(brickID) * 16.0f;
+        }
+    }
+
+    for (int y = 0; y < size; y++)
+    {
+        int row = y / brickH;
+
+        int rowOffset =
+            (row % 2 == 0) ? 0 : brickW / 2;
+
+        int ys = y % brickH;
+
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 3;
+
+            int xs = (x + rowOffset) % brickW;
+
+            bool isMortarX = xs < mortar;
+            bool isMortarY = ys < mortar;
+            bool isMortar = isMortarX || isMortarY;
+
+            float grain =
+                pixelGrain(x, y, 4001) * 6.0f;
+
+            if (isMortar)
+            {
+
+                int pos = isMortarY ? ys : xs;
+
+                float bevel = 0.0f;
+
+                if (pos == 0)
+                    bevel = 22.0f;
+                else if (pos == mortar - 1)
+                    bevel = -20.0f;
+
+                float shade = 182.0f + bevel + grain;
+
+                if (shade < 0) shade = 0;
+                if (shade > 255) shade = 255;
+
+                data[idx] = (unsigned char)shade;
+                data[idx + 1] = (unsigned char)(shade - 5);
+                data[idx + 2] = (unsigned char)(shade - 15);
+            }
+            else
+            {
+                int brickCol = (x + rowOffset) / brickW;
+
+                float jitter = brickJitter[row][brickCol];
+
+ 
+                float faceShade =
+                    ((float)(brickH - ys) / (float)brickH) *
+                    10.0f;
+
+                float r = 148.0f + jitter + faceShade + grain;
+                float g = 66.0f + jitter * 0.5f + faceShade * 0.4f + grain * 0.5f;
+                float b = 53.0f + jitter * 0.35f + faceShade * 0.3f + grain * 0.35f;
+
+                if (r < 0) r = 0;
+                if (r > 255) r = 255;
+                if (g < 0) g = 0;
+                if (g > 255) g = 255;
+                if (b < 0) b = 0;
+                if (b > 255) b = 255;
+
+                data[idx] = (unsigned char)r;
+                data[idx + 1] = (unsigned char)g;
+                data[idx + 2] = (unsigned char)b;
+            }
+        }
+    }
+
+    return data;
+}
+
+
+unsigned char *generateFloorTexture(int size)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 3];
+
+    int tileSize = size / 6;
+    int grout = size / 170;
+    if (grout < 2) grout = 2;
+
+    int tilesPerAxis = size / tileSize + 2;
+    float *tileJitter = new float[tilesPerAxis * tilesPerAxis];
+
+    for (int ty = 0; ty < tilesPerAxis; ty++)
+    {
+        for (int tx = 0; tx < tilesPerAxis; tx++)
+        {
+            int tileID = tx * 31 + ty * 17;
+            tileJitter[ty * tilesPerAxis + tx] =
+                pseudoRandom(tileID) * 10.0f;
+        }
+    }
+
+    for (int y = 0; y < size; y++)
+    {
+        int ys = y % tileSize;
+
+        int tileRow = y / tileSize;
+
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 3;
+
+            int xs = x % tileSize;
+
+            bool isGroutX = xs < grout;
+            bool isGroutY = ys < grout;
+            bool isGrout = isGroutX || isGroutY;
+
+            int tileCol = x / tileSize;
+
+            float jitter =
+                tileJitter[tileRow * tilesPerAxis + tileCol];
+
+
+            float speckle =
+                pixelGrain(x, y, 8123) * 9.0f;
+
+            if (isGrout)
+            {
+                int pos = isGroutY ? ys : xs;
+
+                float bevel = (pos == 0) ? -14.0f : 4.0f;
+
+                float shade = 92.0f + bevel;
+
+                data[idx] = (unsigned char)shade;
+                data[idx + 1] = (unsigned char)shade;
+                data[idx + 2] = (unsigned char)(shade - 3);
+            }
+            else
+            {
+
+                float edgeBevel = 0.0f;
+
+                int distFromEdgeX =
+                    (xs < tileSize / 2)
+                        ? xs
+                        : tileSize - xs;
+
+                int distFromEdgeY =
+                    (ys < tileSize / 2)
+                        ? ys
+                        : tileSize - ys;
+
+                int distFromEdge =
+                    (distFromEdgeX < distFromEdgeY)
+                        ? distFromEdgeX
+                        : distFromEdgeY;
+
+                if (distFromEdge < grout + 2)
+                    edgeBevel = -6.0f;
+
+                float base =
+                    145.0f + jitter + speckle + edgeBevel;
+
+                if (base < 0) base = 0;
+                if (base > 255) base = 255;
+
+                data[idx] = (unsigned char)base;
+                data[idx + 1] = (unsigned char)base;
+                data[idx + 2] = (unsigned char)(base - 6);
+            }
+        }
+    }
+
+    delete[] tileJitter;
+
+    return data;
+}
+
+unsigned char *generateGlassTexture(int size)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 3];
+
+    int cols = 8;
+    int rows = 12;
+
+    int cellW = size / cols;
+    int cellH = size / rows;
+
+    int frame = size / 128;
+    if (frame < 2) frame = 2;
+
+    bool *litTable = new bool[cols * rows];
+
+    for (int cellRow = 0; cellRow < rows; cellRow++)
+    {
+        for (int cellCol = 0; cellCol < cols; cellCol++)
+        {
+            int cellID = cellCol * 7 + cellRow * 19;
+            litTable[cellRow * cols + cellCol] =
+                pseudoRandom(cellID) > 0.35f;
+        }
+    }
+
+    for (int y = 0; y < size; y++)
+    {
+        int ys = y % cellH;
+
+        int cellRow = y / cellH;
+
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 3;
+
+            int xs = x % cellW;
+
+            bool isFrameX = xs < frame;
+            bool isFrameY = ys < frame;
+            bool isFrame = isFrameX || isFrameY;
+
+            if (isFrame)
+            {
+                int pos = isFrameY ? ys : xs;
+
+                float bevel = (pos == 0) ? 18.0f : -10.0f;
+
+                float shade = 40.0f + bevel;
+                if (shade < 0) shade = 0;
+
+                data[idx] = (unsigned char)shade;
+                data[idx + 1] = (unsigned char)shade;
+                data[idx + 2] = (unsigned char)(shade + 6);
+            }
+            else
+            {
+                int cellCol = x / cellW;
+
+                bool litWindow = litTable[cellRow * cols + cellCol];
+
+                float paneFrac =
+                    (float)ys / (float)cellH;
+
+                float grain =
+                    pixelGrain(x, y, 5231) * 5.0f;
+
+                if (litWindow)
+                {
+                    float r = 232.0f - paneFrac * 25.0f + grain;
+                    float g = 216.0f - paneFrac * 30.0f + grain;
+                    float b = 150.0f - paneFrac * 20.0f + grain;
+
+                    if (r < 0) r = 0;
+                    if (r > 255) r = 255;
+                    if (g < 0) g = 0;
+                    if (g > 255) g = 255;
+                    if (b < 0) b = 0;
+                    if (b > 255) b = 255;
+
+                    data[idx] = (unsigned char)r;
+                    data[idx + 1] = (unsigned char)g;
+                    data[idx + 2] = (unsigned char)b;
+                }
+                else
+                {
+                    float r = 60.0f + (1.0f - paneFrac) * 35.0f + grain;
+                    float g = 88.0f + (1.0f - paneFrac) * 32.0f + grain;
+                    float b = 108.0f + (1.0f - paneFrac) * 28.0f + grain;
+
+                    if (r < 0) r = 0;
+                    if (r > 255) r = 255;
+                    if (g < 0) g = 0;
+                    if (g > 255) g = 255;
+                    if (b < 0) b = 0;
+                    if (b > 255) b = 255;
+
+                    data[idx] = (unsigned char)r;
+                    data[idx + 1] = (unsigned char)g;
+                    data[idx + 2] = (unsigned char)b;
+                }
+            }
+        }
+    }
+
+    delete[] litTable;
+
+    return data;
+}
+
+// SHORT BUILDINGS
+unsigned char *generatePanelTexture(int size)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 3];
+
+    int cols = 4;
+    int rows = 6;
+
+    int cellW = size / cols;
+    int cellH = size / rows;
+
+    int frame = size / 85;
+    if (frame < 3) frame = 3;
+
+    float *cellJitter = new float[cols * rows];
+
+    for (int cellRow = 0; cellRow < rows; cellRow++)
+    {
+        for (int cellCol = 0; cellCol < cols; cellCol++)
+        {
+            int cellID = cellCol * 5 + cellRow * 23;
+            cellJitter[cellRow * cols + cellCol] =
+                pseudoRandom(cellID) * 16.0f;
+        }
+    }
+
+    int streakBuckets = size / 3 + 2;
+    float *streakTable = new float[streakBuckets];
+
+    for (int b = 0; b < streakBuckets; b++)
+    {
+        streakTable[b] = pseudoRandom(b + 9001) * 14.0f;
+    }
+
+    for (int y = 0; y < size; y++)
+    {
+        int ys = y % cellH;
+
+        int cellRow = y / cellH;
+
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 3;
+
+            int xs = x % cellW;
+
+            bool isFrameX = xs < frame;
+            bool isFrameY = ys < frame;
+            bool isFrame = isFrameX || isFrameY;
+
+            int cellCol = x / cellW;
+
+            float jitter = cellJitter[cellRow * cols + cellCol];
+
+
+            float streak = streakTable[x / 3];
+
+            float grain =
+                pixelGrain(x, y, 7331) * 6.0f;
+
+            float base = 195.0f + jitter + streak + grain;
+
+            if (base < 0) base = 0;
+            if (base > 255) base = 255;
+
+            if (isFrame)
+            {
+                int pos = isFrameY ? ys : xs;
+
+                float bevel = (pos == 0) ? 14.0f : -16.0f;
+
+                float shade = base - 42.0f + bevel;
+                if (shade < 0) shade = 0;
+
+                data[idx] = (unsigned char)shade;
+                data[idx + 1] = (unsigned char)(shade + 2);
+                data[idx + 2] = (unsigned char)(shade + 5);
+            }
+            else
+            {
+                data[idx] = (unsigned char)base;
+                data[idx + 1] = (unsigned char)(base - 3);
+                data[idx + 2] = (unsigned char)(base - 9);
+            }
+        }
+    }
+
+    delete[] cellJitter;
+    delete[] streakTable;
+
+    return data;
+}
+
+// WINDMILL TOWER
+unsigned char *generateMetalTexture(int size)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 3];
+
+    int bandSpacing = size / 5;
+    int bandWidth = size / 22;
+    int stripeW = size / 36;
+
+    for (int y = 0; y < size; y++)
+    {
+        int bandPos = y % bandSpacing;
+
+        bool inBand = bandPos < bandWidth;
+
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 3;
+
+            float grain =
+                pixelGrain(x, y, 6111) * 2.0f;
+
+            if (inBand)
+            {
+                int stripe = ((x + y) / stripeW) % 2;
+
+                if (stripe == 0)
+                {
+                    data[idx] = (unsigned char)(225.0f + grain);
+                    data[idx + 1] = (unsigned char)(40.0f + grain * 0.3f);
+                    data[idx + 2] = (unsigned char)(36.0f + grain * 0.3f);
+                }
+                else
+                {
+                    data[idx] = (unsigned char)(238.0f + grain);
+                    data[idx + 1] = (unsigned char)(238.0f + grain);
+                    data[idx + 2] = (unsigned char)(238.0f + grain);
+                }
+            }
+            else
+            {
+                float base = 190.0f + grain;
+
+                if (base < 0) base = 0;
+                if (base > 255) base = 255;
+
+                data[idx] = (unsigned char)base;
+                data[idx + 1] = (unsigned char)base;
+                data[idx + 2] = (unsigned char)(base + 8.0f);
+            }
+        }
+    }
+
+    return data;
+}
+
+// WINDMILL BLADES
+unsigned char *generateBladeTexture(int size)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 3];
+
+    for (int y = 0; y < size; y++)
+    {
+        float lengthFrac = (float)y / (float)size;
+
+        bool isTip = lengthFrac > 0.85f;
+
+        int stripe = (y / (size / 20)) % 2;
+
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 3;
+
+            float grain =
+                pixelGrain(x, y, 7411) * 2.0f;
+
+            if (isTip)
+            {
+                if (stripe == 0)
+                {
+                    data[idx] = (unsigned char)(230.0f + grain);
+                    data[idx + 1] = (unsigned char)(30.0f + grain * 0.3f);
+                    data[idx + 2] = (unsigned char)(28.0f + grain * 0.3f);
+                }
+                else
+                {
+                    float shade = 240.0f + grain;
+                    if (shade < 0) shade = 0;
+                    if (shade > 255) shade = 255;
+
+                    data[idx] = (unsigned char)shade;
+                    data[idx + 1] = (unsigned char)shade;
+                    data[idx + 2] = (unsigned char)shade;
+                }
+            }
+            else
+            {
+                float base = 232.0f + grain;
+
+                if (base < 0) base = 0;
+                if (base > 255) base = 255;
+
+                data[idx] = (unsigned char)base;
+                data[idx + 1] = (unsigned char)(base + 1);
+                data[idx + 2] = (unsigned char)(base + 3);
+            }
+        }
+    }
+
+    return data;
+}
+
+unsigned char *generateSkyTexture(int size, bool night)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 3];
+
+    for (int y = 0; y < size; y++)
+    {
+        float v = (float)y / (float)(size - 1);
+
+        float r, g, b;
+
+        if (night)
+        {
+
+            r = 4.0f + (1.0f - v) * 10.0f;
+            g = 5.0f + (1.0f - v) * 14.0f;
+            b = 18.0f + (1.0f - v) * 28.0f;
+        }
+        else
+        {
+
+            r = 70.0f + (1.0f - v) * 110.0f;
+            g = 130.0f + (1.0f - v) * 100.0f;
+            b = 220.0f + (1.0f - v) * 30.0f;
+
+            if (b > 255.0f) b = 255.0f;
+        }
+
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 3;
+
+            float fr = r;
+            float fg = g;
+            float fb = b;
+
+            if (!night)
+            {
+                float cloudBand =
+                    sinf((x * 0.021f) + v * 3.0f) *
+                        0.5f +
+                    sinf((x * 0.009f) - v * 5.0f) *
+                        0.5f;
+
+                float cloudMask =
+                    cloudBand - (0.55f - v * 0.3f);
+
+                if (cloudMask > 0.0f && v > 0.2f && v < 0.85f)
+                {
+                    float strength = cloudMask * 90.0f;
+
+                    if (strength > 55.0f) strength = 55.0f;
+
+                    fr += strength;
+                    fg += strength;
+                    fb += strength * 0.85f;
+                }
+            }
+
+            if (fr < 0) fr = 0;
+            if (fr > 255) fr = 255;
+            if (fg < 0) fg = 0;
+            if (fg > 255) fg = 255;
+            if (fb < 0) fb = 0;
+            if (fb > 255) fb = 255;
+
+            data[idx] = (unsigned char)fr;
+            data[idx + 1] = (unsigned char)fg;
+            data[idx + 2] = (unsigned char)fb;
+        }
+    }
+
+    return data;
+}
+
+// SUN / MOON
+unsigned char *generateSunMoonTexture(int size, bool isSun)
+{
+    unsigned char *data =
+        new unsigned char[size * size * 4];
+
+    float center = size / 2.0f;
+
+    for (int y = 0; y < size; y++)
+    {
+        for (int x = 0; x < size; x++)
+        {
+            int idx = (y * size + x) * 4;
+
+            float dx = (x - center) / center;
+            float dy = (y - center) / center;
+
+            float dist = sqrtf(dx * dx + dy * dy);
+
+            float r, g, b, a;
+
+            if (isSun)
+            {
+                float disc =
+                    1.0f - smoothstepf(0.28f, 0.34f, dist);
+
+                float glow =
+                    1.0f - smoothstepf(0.34f, 1.0f, dist);
+
+                r = 255.0f;
+                g = 245.0f - (1.0f - disc) * 25.0f;
+                b = 190.0f - (1.0f - disc) * 70.0f;
+
+                a = (disc * 255.0f) + (glow * 140.0f);
+            }
+            else
+            {
+                float disc =
+                    1.0f - smoothstepf(0.26f, 0.32f, dist);
+
+                float glow =
+                    1.0f - smoothstepf(0.32f, 0.95f, dist);
+
+                float crater =
+                    pseudoRandom(x * 37 + y * 53 + 4471) > 0.86f
+                        ? -18.0f
+                        : 0.0f;
+
+                r = 222.0f + crater;
+                g = 228.0f + crater;
+                b = 240.0f + crater;
+
+                a = (disc * 235.0f) + (glow * 70.0f);
+            }
+
+            if (a > 255.0f) a = 255.0f;
+            if (a < 0.0f) a = 0.0f;
+
+            if (r < 0) r = 0;
+            if (r > 255) r = 255;
+            if (g < 0) g = 0;
+            if (g > 255) g = 255;
+            if (b < 0) b = 0;
+            if (b > 255) b = 255;
+
+            data[idx] = (unsigned char)r;
+            data[idx + 1] = (unsigned char)g;
+            data[idx + 2] = (unsigned char)b;
+            data[idx + 3] = (unsigned char)a;
+        }
+    }
+
+    return data;
+}
+
+void loadwallTexture()
+{
+    unsigned char *pixels =
+        generateBrickTexture(TEX_SIZE);
+
+    wallTexture =
+        uploadProceduralTexture(
+            pixels,
+            TEX_SIZE,
+            true);
+
+    delete[] pixels;
+
+    printf(
+        "Wall texture (brick) generated: %d x %d\n",
+        TEX_SIZE,
+        TEX_SIZE);
+}
 
 void loadFloorTexture()
 {
-    int width;
-    int height;
-    int channels;
+    unsigned char *pixels =
+        generateFloorTexture(TEX_SIZE);
 
-    unsigned char *image =
-        stbi_load(
-            "image/floor.jpg",
-            &width,
-            &height,
-            &channels,
-            0);
+    floorTexture =
+        uploadProceduralTexture(
+            pixels,
+            TEX_SIZE,
+            true);
 
-    if (!image)
-    {
-        printf(
-            "FAILED TO LOAD: image/floor.jpg\n");
-
-        printf(
-            "Reason: %s\n",
-            stbi_failure_reason());
-
-        return;
-    }
-
-    GLenum format;
-
-    if (channels == 4)
-        format = GL_RGBA;
-
-    else if (channels == 3)
-        format = GL_RGB;
-
-    else if (channels == 1)
-        format = GL_LUMINANCE;
-
-    else
-    {
-        printf(
-            "Unsupported floor image format!\n");
-
-        stbi_image_free(
-            image);
-
-        return;
-    }
-
-    glGenTextures(
-        1,
-        &floorTexture);
-
-    glBindTexture(
-        GL_TEXTURE_2D,
-        floorTexture);
-
-    glPixelStorei(
-        GL_UNPACK_ALIGNMENT,
-        1);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MIN_FILTER,
-        GL_LINEAR);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MAG_FILTER,
-        GL_LINEAR);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_S,
-        GL_REPEAT);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_T,
-        GL_REPEAT);
-
-    glTexEnvi(
-        GL_TEXTURE_ENV,
-        GL_TEXTURE_ENV_MODE,
-        GL_REPLACE);
-
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        format,
-        width,
-        height,
-        0,
-        format,
-        GL_UNSIGNED_BYTE,
-        image);
-
-    glBindTexture(
-        GL_TEXTURE_2D,
-        0);
-
-    stbi_image_free(
-        image);
+    delete[] pixels;
 
     printf(
-        "Floor texture loaded successfully!\n");
-
-    printf(
-        "Floor size: %d x %d | Channels: %d\n",
-        width,
-        height,
-        channels);
+        "Floor texture (tile) generated: %d x %d\n",
+        TEX_SIZE,
+        TEX_SIZE);
 }
-
-// LOAD BUILDING TEXTURE
 
 void loadBuildTexture()
 {
-    int width;
-    int height;
-    int channels;
+    unsigned char *pixels =
+        generateGlassTexture(TEX_SIZE);
 
-    unsigned char *image =
-        stbi_load(
-            "image/build.jpg",
-            &width,
-            &height,
-            &channels,
-            0);
+    buildTexture =
+        uploadProceduralTexture(
+            pixels,
+            TEX_SIZE,
+            true);
 
-    if (!image)
-    {
-        printf(
-            "FAILED TO LOAD: image/build.jpg\n");
-
-        printf(
-            "Reason: %s\n",
-            stbi_failure_reason());
-
-        return;
-    }
-
-    GLenum format;
-
-    if (channels == 4)
-        format = GL_RGBA;
-
-    else if (channels == 3)
-        format = GL_RGB;
-
-    else if (channels == 1)
-        format = GL_LUMINANCE;
-
-    else
-    {
-        printf(
-            "Unsupported building image format!\n");
-
-        stbi_image_free(
-            image);
-
-        return;
-    }
-
-    glGenTextures(
-        1,
-        &buildTexture);
-
-    glBindTexture(
-        GL_TEXTURE_2D,
-        buildTexture);
-
-    glPixelStorei(
-        GL_UNPACK_ALIGNMENT,
-        1);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MIN_FILTER,
-        GL_LINEAR);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MAG_FILTER,
-        GL_LINEAR);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_S,
-        GL_REPEAT);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_T,
-        GL_REPEAT);
-
-    glTexEnvi(
-        GL_TEXTURE_ENV,
-        GL_TEXTURE_ENV_MODE,
-        GL_REPLACE);
-
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        format,
-        width,
-        height,
-        0,
-        format,
-        GL_UNSIGNED_BYTE,
-        image);
-
-    glBindTexture(
-        GL_TEXTURE_2D,
-        0);
-
-    stbi_image_free(
-        image);
+    delete[] pixels;
 
     printf(
-        "Building texture loaded successfully!\n");
+        "Building texture (glass) generated: %d x %d\n",
+        TEX_SIZE,
+        TEX_SIZE);
+}
+
+void loadBuild1Texture()
+{
+    unsigned char *pixels =
+        generatePanelTexture(TEX_SIZE);
+
+    build1Texture =
+        uploadProceduralTexture(
+            pixels,
+            TEX_SIZE,
+            true);
+
+    delete[] pixels;
 
     printf(
-        "Building size: %d x %d | Channels: %d\n",
-        width,
-        height,
-        channels);
+        "Building1 texture (panel) generated: %d x %d\n",
+        TEX_SIZE,
+        TEX_SIZE);
+}
+
+void loadWindmillTowerTexture()
+{
+    unsigned char *pixels =
+        generateMetalTexture(TEX_SIZE);
+
+    windmillTowerTexture =
+        uploadProceduralTexture(
+            pixels,
+            TEX_SIZE,
+            true);
+
+    delete[] pixels;
+
+    printf(
+        "Windmill tower texture (metal) generated: %d x %d\n",
+        TEX_SIZE,
+        TEX_SIZE);
+}
+
+void loadWindmillBladeTexture()
+{
+    unsigned char *pixels =
+        generateBladeTexture(TEX_SIZE);
+
+    windmillBladeTexture =
+        uploadProceduralTexture(
+            pixels,
+            TEX_SIZE,
+            true);
+
+    delete[] pixels;
+
+    printf(
+        "Windmill blade texture (painted metal) generated: %d x %d\n",
+        TEX_SIZE,
+        TEX_SIZE);
+}
+
+void loadSkyTextures()
+{
+    const int SKY_TEX_SIZE = 256;
+
+    unsigned char *dayPixels =
+        generateSkyTexture(SKY_TEX_SIZE, false);
+
+    skyDayTexture =
+        uploadProceduralTexture(
+            dayPixels,
+            SKY_TEX_SIZE,
+            false);
+
+    delete[] dayPixels;
+
+    unsigned char *nightPixels =
+        generateSkyTexture(SKY_TEX_SIZE, true);
+
+    skyNightTexture =
+        uploadProceduralTexture(
+            nightPixels,
+            SKY_TEX_SIZE,
+            false);
+
+    delete[] nightPixels;
+
+    printf(
+        "Sky textures (day + night) generated: %d x %d\n",
+        SKY_TEX_SIZE,
+        SKY_TEX_SIZE);
+}
+
+void loadSunMoonTextures()
+{
+    const int GLOW_TEX_SIZE = 256;
+
+    unsigned char *sunPixels =
+        generateSunMoonTexture(GLOW_TEX_SIZE, true);
+
+    sunTexture =
+        uploadProceduralTextureRGBA(
+            sunPixels,
+            GLOW_TEX_SIZE);
+
+    delete[] sunPixels;
+
+    unsigned char *moonPixels =
+        generateSunMoonTexture(GLOW_TEX_SIZE, false);
+
+    moonTexture =
+        uploadProceduralTextureRGBA(
+            moonPixels,
+            GLOW_TEX_SIZE);
+
+    delete[] moonPixels;
+
+    printf(
+        "Sun / moon glow sprites generated: %d x %d\n",
+        GLOW_TEX_SIZE,
+        GLOW_TEX_SIZE);
 }
 
 // DRAW CUBE
@@ -1715,121 +3166,6 @@ void drawFloor()
         0);
 }
 
-// LOAD BUILDING1 TEXTURE
-
-void loadBuild1Texture()
-{
-    int width;
-    int height;
-    int channels;
-
-    unsigned char *image =
-        stbi_load(
-            "image/build1.jpg",
-            &width,
-            &height,
-            &channels,
-            0);
-
-    if (!image)
-    {
-        printf(
-            "FAILED TO LOAD: image/build1.jpg\n");
-
-        printf(
-            "Reason: %s\n",
-            stbi_failure_reason());
-
-        return;
-    }
-
-    GLenum format;
-
-    if (channels == 4)
-        format = GL_RGBA;
-
-    else if (channels == 3)
-        format = GL_RGB;
-
-    else if (channels == 1)
-        format = GL_LUMINANCE;
-
-    else
-    {
-        printf(
-            "Unsupported building1 image format!\n");
-
-        stbi_image_free(
-            image);
-
-        return;
-    }
-
-    glGenTextures(
-        1,
-        &build1Texture);
-
-    glBindTexture(
-        GL_TEXTURE_2D,
-        build1Texture);
-
-    glPixelStorei(
-        GL_UNPACK_ALIGNMENT,
-        1);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MIN_FILTER,
-        GL_LINEAR);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MAG_FILTER,
-        GL_LINEAR);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_S,
-        GL_REPEAT);
-
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_T,
-        GL_REPEAT);
-
-    glTexEnvi(
-        GL_TEXTURE_ENV,
-        GL_TEXTURE_ENV_MODE,
-        GL_REPLACE);
-
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        format,
-        width,
-        height,
-        0,
-        format,
-        GL_UNSIGNED_BYTE,
-        image);
-
-    glBindTexture(
-        GL_TEXTURE_2D,
-        0);
-
-    stbi_image_free(
-        image);
-
-    printf(
-        "Building1 texture loaded successfully!\n");
-
-    printf(
-        "Building size: %d x %d | Channels: %d\n",
-        width,
-        height,
-        channels);
-}
-
 // DRAW WALL
 
 void drawWall(
@@ -1952,15 +3288,15 @@ void drawT2()
 
 void drawWindMill()
 {
-    glDisable(
+    glEnable(
         GL_TEXTURE_2D);
 
     // TOWER
 
     glColor3f(
-        0.55f,
-        0.57f,
-        0.58f);
+        1.0f,
+        1.0f,
+        1.0f);
 
     const float windmillTowerHeight =
         10.5f;
@@ -1985,8 +3321,16 @@ void drawWindMill()
         0.0f,
         0.0f);
 
+    glBindTexture(
+        GL_TEXTURE_2D,
+        windmillTowerTexture);
+
     GLUquadric *quadric =
         gluNewQuadric();
+
+    gluQuadricTexture(
+        quadric,
+        GL_TRUE);
 
     gluCylinder(
         quadric,
@@ -2001,6 +3345,10 @@ void drawWindMill()
 
     gluDeleteQuadric(
         quadric);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0);
 
     glPopMatrix();
 
@@ -2020,9 +3368,9 @@ void drawWindMill()
         1.0f);
 
     glColor3f(
-        0.82f,
-        0.83f,
-        0.84f);
+        1.0f,
+        1.0f,
+        1.0f);
 
     for (int i = 0;
          i < 4;
@@ -2036,14 +3384,16 @@ void drawWindMill()
             0.0f,
             1.0f);
 
-        drawCube(
+        drawTexturedCube(
             0.0f,
             0.75f,
             0.0f,
 
             0.18f,
             1.5f,
-            0.12f);
+            0.12f,
+
+            windmillBladeTexture);
 
         glPopMatrix();
     }
@@ -2189,7 +3539,7 @@ void drawInternalWalls()
 {
     float wallY = 0.9f;
     float wallH = 3.8f;
-    float wallD = 0.35f;
+
 
     // LEFT UPPER VERTICAL
     drawWall(
@@ -2319,7 +3669,6 @@ void drawMap()
 {
     glPushMatrix();
 
-    // 2x larger in X and Z
     glScalef(
         MAP_SCALE,
         1.0f,
@@ -2338,6 +3687,189 @@ void drawMap()
     glPopMatrix();
 }
 
+// SKY
+
+void drawSky()
+{
+    glPushMatrix();
+
+    glTranslatef(
+        cameraX,
+        cameraY,
+        cameraZ);
+
+    glDisable(
+        GL_LIGHTING);
+
+    glDepthMask(
+        GL_FALSE);
+
+    glEnable(
+        GL_TEXTURE_2D);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        isNightMode ? skyNightTexture : skyDayTexture);
+
+    glColor3f(
+        1.0f,
+        1.0f,
+        1.0f);
+    glRotatef(
+        -90.0f,
+        1.0f,
+        0.0f,
+        0.0f);
+
+    GLUquadric *skyQuadric =
+        gluNewQuadric();
+
+    gluQuadricTexture(
+        skyQuadric,
+        GL_TRUE);
+
+
+    gluQuadricOrientation(
+        skyQuadric,
+        GLU_INSIDE);
+
+    gluSphere(
+        skyQuadric,
+        70.0f,
+        24,
+        16);
+
+    gluDeleteQuadric(
+        skyQuadric);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0);
+
+    glDepthMask(
+        GL_TRUE);
+
+    glEnable(
+        GL_LIGHTING);
+
+    glPopMatrix();
+}
+
+
+void drawSunOrMoon()
+{
+
+    float dirX = 0.35f;
+    float dirY = 0.62f;
+    float dirZ = -0.70f;
+
+    float len =
+        sqrtf(
+            dirX * dirX +
+            dirY * dirY +
+            dirZ * dirZ);
+
+    dirX /= len;
+    dirY /= len;
+    dirZ /= len;
+
+    const float distance = 60.0f;
+    const float spriteSize = isNightMode ? 4.5f : 6.0f;
+
+    float centerX = cameraX + dirX * distance;
+    float centerY = cameraY + dirY * distance;
+    float centerZ = cameraZ + dirZ * distance;
+
+    float yawRad =
+        cameraYaw *
+        3.14159265f /
+        180.0f;
+
+    float rightX = cosf(yawRad);
+    float rightZ = sinf(yawRad);
+
+    float upX = 0.0f;
+    float upY = 1.0f;
+    float upZ = 0.0f;
+
+    glDisable(
+        GL_LIGHTING);
+
+    glDisable(
+        GL_DEPTH_TEST);
+
+    glDepthMask(
+        GL_FALSE);
+
+    glEnable(
+        GL_BLEND);
+
+    glBlendFunc(
+        GL_SRC_ALPHA,
+        GL_ONE_MINUS_SRC_ALPHA);
+
+    glEnable(
+        GL_TEXTURE_2D);
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        isNightMode ? moonTexture : sunTexture);
+
+    glColor4f(
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f);
+
+    glBegin(
+        GL_QUADS);
+
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(
+        centerX - rightX * spriteSize,
+        centerY - upY * spriteSize,
+        centerZ - rightZ * spriteSize);
+
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex3f(
+        centerX + rightX * spriteSize,
+        centerY - upY * spriteSize,
+        centerZ + rightZ * spriteSize);
+
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex3f(
+        centerX + rightX * spriteSize,
+        centerY + upY * spriteSize,
+        centerZ + rightZ * spriteSize);
+
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex3f(
+        centerX - rightX * spriteSize,
+        centerY + upY * spriteSize,
+        centerZ - rightZ * spriteSize);
+
+    glEnd();
+
+    glBindTexture(
+        GL_TEXTURE_2D,
+        0);
+
+    glDisable(
+        GL_BLEND);
+
+    glDepthMask(
+        GL_TRUE);
+
+    glEnable(
+        GL_DEPTH_TEST);
+
+    glEnable(
+        GL_LIGHTING);
+
+    (void)upX;
+    (void)upZ;
+}
+
 // DISPLAY
 
 void display()
@@ -2345,6 +3877,15 @@ void display()
     glClear(
         GL_COLOR_BUFFER_BIT |
         GL_DEPTH_BUFFER_BIT);
+
+    if (gameState == STATE_MENU)
+    {
+        drawMenuScreen();
+
+        glutSwapBuffers();
+
+        return;
+    }
 
     glMatrixMode(
         GL_MODELVIEW);
@@ -2401,6 +3942,10 @@ void display()
         GL_POSITION,
         lightPosition);
 
+    drawSky();
+
+    drawSunOrMoon();
+
     drawMap();
 
     drawEnemies();
@@ -2413,18 +3958,34 @@ void display()
 // WINDMILL
 
 void update(
-    int value)
+    int )
 {
     updateCamera();
 
-    windmillAngle +=
-        2.0f;
-
-    if (windmillAngle >=
-        360.0f)
+    if (!windmillPaused)
     {
-        windmillAngle -=
-            360.0f;
+        windmillAngle +=
+            2.0f;
+
+        if (windmillAngle >=
+            360.0f)
+        {
+            windmillAngle -=
+                360.0f;
+        }
+    }
+
+
+    if (gameState == STATE_PLAYING && victory)
+    {
+        DWORD elapsed =
+            GetTickCount() -
+            victoryStartTime;
+
+        if (elapsed >= VICTORY_DISPLAY_MS)
+        {
+            resetGameToMenu();
+        }
     }
 
     glutPostRedisplay();
@@ -2473,12 +4034,6 @@ void resize(
 
 void init()
 {
-    glClearColor(
-        0.25f,
-        0.25f,
-        0.25f,
-        1.0f);
-
     glEnable(
         GL_DEPTH_TEST);
 
@@ -2495,34 +4050,11 @@ void init()
             0.0f,
             1.0f};
 
-    GLfloat lightColor[] =
-        {
-            1.0f,
-            1.0f,
-            1.0f,
-            1.0f};
-
-    GLfloat ambientLight[] =
-        {
-            0.25f,
-            0.25f,
-            0.25f,
-            1.0f};
-
     glLightfv(
         GL_LIGHT0,
         GL_POSITION,
         lightPosition);
-
-    glLightfv(
-        GL_LIGHT0,
-        GL_DIFFUSE,
-        lightColor);
-
-    glLightfv(
-        GL_LIGHT0,
-        GL_AMBIENT,
-        ambientLight);
+    applyLightingMode();
 
 
     glEnable(
@@ -2547,6 +4079,14 @@ void init()
     loadBuildTexture();
 
     loadBuild1Texture();
+
+    loadWindmillTowerTexture();
+
+    loadWindmillBladeTexture();
+
+    loadSkyTextures();
+
+    loadSunMoonTextures();
 }
 
 int main(
@@ -2567,7 +4107,7 @@ int main(
         1080);
 
     glutCreateWindow(
-        "FPS Shooter");
+        "Graphics and Animation - 3D Map");
 
     init();
 
@@ -2575,9 +4115,7 @@ int main(
 
 
     glutSetCursor(
-        GLUT_CURSOR_NONE);
-
-    centerMouse();
+        GLUT_CURSOR_LEFT_ARROW);
 
     glutPassiveMotionFunc(
         mouseMotion);
@@ -2585,6 +4123,12 @@ int main(
 
     glutMouseFunc(
         mouseClick);
+
+    glutKeyboardFunc(
+        keyboard);
+
+    glutSpecialFunc(
+        specialKeys);
 
     glutDisplayFunc(
         display);
