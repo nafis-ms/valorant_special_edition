@@ -1,31 +1,94 @@
-#Valorant-Inspired FPS Game
+# 3D Map Shooter
 
-#Project Overview
+A first-person 3D shooter built with C++, OpenGL and GLUT. You explore a walled map with buildings and a spinning windmill, and eliminate every enemy to win. All textures are generated procedurally in code, so the project needs no external image files.
 
-This repository contains a university project developed for the Graphics and Animation course. This project is created for academic purposes only.
+## Features
 
-The project is inspired by Valorant, a first-person shooter (FPS) game. The main goal is to recreate some of its basic gameplay and visual elements.
+- First-person camera with mouse look and WASD movement
+- Jumping and gravity
+- Wall and building collision
+- Ray-based shooting with a cooldown
+- 5 enemies to eliminate, with a live counter on screen
+- Victory screen that returns to the menu after 5 seconds
+- Main menu with keyboard and mouse selection
+- Admin mode: fly freely around the map without enemies
+- Day and night mode with a sun, a moon and different skies
+- Animated windmill that can be paused
+- Procedural textures: brick walls, tiled floor, glass and panel buildings, metal tower, painted blades, sky, sun and moon
 
-Instead of online multiplayer, this project uses AI-controlled bots as enemies. The game is designed without character abilities to keep the focus on graphics, animation, shooting, movement, and basic game mechanics.
+## Controls
 
-#Features
+### Menu
 
-* First-person shooter (FPS) gameplay
-* Player movement
-* Shooting mechanics
-* 3D environment
-* Camera control
-* Collision detection
-* Basic enemy AI
-* No online multiplayer
-* No character abilities
+| Input | Action |
+| --- | --- |
+| Up / Down arrow | Change selection |
+| Enter or Space | Confirm |
+| Left mouse click | Click a menu item |
 
-#Purpose
+### In game
 
-The main purpose of this project is to demonstrate the concepts and techniques learned in the Graphics and Animation course through an interactive 3D FPS game.
+| Input | Action |
+| --- | --- |
+| W / A / S / D | Move |
+| Mouse | Look around |
+| Left mouse button | Shoot |
+| Space | Jump |
+| N | Toggle day / night |
+| Z | Pause / resume windmill |
+| Esc | Quit |
 
-#Disclaimer
+### Admin mode
 
-This project is an academic and non-commercial project inspired by Valorant. It is not affiliated with, endorsed by, or associated with Riot Games.
+| Input | Action |
+| --- | --- |
+| W / A / S / D | Move |
+| H | Fly up |
+| L | Fly down |
+| Q | Return to the menu |
+| N / Z | Same as in game |
 
-All original Valorant trademarks, characters, assets, and intellectual property belong to their respective owners.
+## Building
+
+### Linux (Ubuntu / Debian)
+
+```bash
+sudo apt install build-essential freeglut3-dev
+g++ main_linux.cpp -o shooter -lglut -lGLU -lGL -lm
+./shooter
+```
+
+Use `main_linux.cpp`. On Wayland, the mouse may not stay centered because compositors restrict pointer warping. If that happens, log in with the "Ubuntu on Xorg" session.
+
+### Windows
+
+Install MinGW-w64 and freeglut, then:
+
+```bash
+g++ main.cpp -o shooter.exe -lfreeglut -lopengl32 -lglu32
+shooter.exe
+```
+
+Use `main.cpp`. It relies on `windows.h` for keyboard state, timing and mouse centering.
+
+## Project Structure
+
+| File | Description |
+| --- | --- |
+| `main.cpp` | Windows version |
+| `main_linux.cpp` | Linux version (same game, GLUT-based input and timing) |
+
+The two files share the same game logic, rendering and textures. They differ only in the platform-specific input, timing and mouse handling.
+
+## How It Works
+
+- **Map:** walls and buildings are textured cubes drawn at a scale of 2x. A matching list of collision boxes keeps the player from walking through them.
+- **Collision:** X and Z movement are tested separately, so the player slides along walls. Each box has a top height, which lets the player jump onto lower buildings.
+- **Shooting:** a ray is cast from the camera along the view direction and tested against a sphere around each enemy. The closest hit is eliminated.
+- **Textures:** each texture is generated pixel by pixel at startup with a seeded pseudo-random function, then uploaded with mipmaps.
+- **Day / night:** switches the sky texture, the light colours and the sun or moon sprite.
+
+## Requirements
+
+- A C++ compiler
+- OpenGL, GLU and GLUT (freeglut)
